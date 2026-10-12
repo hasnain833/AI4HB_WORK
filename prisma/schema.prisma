@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String
+  passwordHash  String
+  role          Role           @default(USER)
+  createdAt     DateTime       @default(now())
+  updates       Update[]
+  notifications Notification[]
+}
+
+model Board {
+  id          String       @id @default(cuid())
+  name        String
+  description String       @default("")
+  workspace   String       @default("Product")
+  /// StatusDef[]: { key, label, tone }. The key "DONE" means complete.
+  statuses    Json
+  /// Column[]: { id, name, type, options? }
+  columns     Json         @default("[]")
+  position    Int          @default(0)
+  createdAt   DateTime     @default(now())
+  groups      Group[]
+  items       Item[]
+  automations Automation[]
+}
+
+model Group {
+  id       String @id @default(cuid())
+  boardId  String
+  board    Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name     String
+  color    String
+  position Int    @default(0)
+  items    Item[]
+
+  @@index([boardId])
+}
+
+model Item {
+  id          String     @id @default(cuid())
+  boardId     String
+  board       Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  groupId     String
+  group       Group      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  name        String
+  status      String     @default("NOT_STARTED")
+  priority    Priority   @default(MEDIUM)
+  /// User ids
+  assigneeIds String[]   @default([])
+  start       String? // yyyy-MM-dd
+  due         String? // yyyy-MM-dd
+  description String     @default("")
+  /// Custom column values keyed by column id
+  values      Json       @default("{}")
+  /// Item ids this item is blocked by
+  dependsOn   String[]   @default([])
+  position    Float      @default(0)
+  /// Soft delete so "Undo" can restore
+  deletedAt   DateTime?
+  createdAt   DateTime   @default(now())
+  subtasks    Subtask[]
+  updates     Update[]
+  files       File[]
+  activity    Activity[]
+
+  @@index([boardId, deletedAt])
+  @@index([groupId])
+}
+
+model Subtask {
+  id         String  @id @default(cuid())
+  itemId     String
+  item       Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  title      String
+  done       Boolean @default(false)
+  assigneeId String?
+  position   Int     @default(0)
+
+  @@index([itemId])
+}
+
+model Update {
+  id        String   @id @default(cuid())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([itemId])
+}
+
+model File {
+  id        String   @id @default(cuid())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  name      String
+  /// ponytail: image previews stored inline as data URLs, move to Supabase Storage for real files
+  url       String?
+  createdAt DateTime @default(now())
+
+  @@index([itemId])
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  text      String
+  createdAt DateTime @default(now())
+
+  @@index([itemId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text      String
+  itemId    String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model Automation {
+  id        String   @id @default(cuid())
+  /// null = runs on all boards
+  boardId   String?
+  board     Board?   @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// { type: "created" | "assigned" } | { type: "status", to } | { type: "priority", to }
+  trigger   Json
+  /// { type: "notify" | "assign" | "set_priority" | "set_status" | "move_group", value }
+  action    Json
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+}

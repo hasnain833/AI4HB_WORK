@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 216" role="img" aria-label="AI4HB — AI For Home Builders">
+
+  <!-- Roofline -->
+  <path d="M23,96 L63,60 L103,78 L158,40 L198,58 L258,20" fill="none" stroke="#13294B" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Node 1: queued — hollow ring only -->
+  <circle cx="63" cy="60" r="8" fill="none" stroke="#C97B3D" stroke-width="3.5"/>
+
+  <!-- Node 2: in progress — 60% pie fill, mouth open left, with matching ring border -->
+  <path d="M158,40 L155.68,32.87 A7.5,7.5 0 1,1 155.68,47.13 Z" fill="#C97B3D"/>
+  <circle cx="158" cy="40" r="8" fill="none" stroke="#C97B3D" stroke-width="3.5"/>
+
+  <!-- Node 3: complete — solid fill with white checkmark -->
+  <circle cx="258" cy="20" r="10" fill="#C97B3D"/>
+  <path d="M252.5,20 L256.5,24.5 L264,14.5" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Wordmark -->
+  <text x="140" y="172" text-anchor="middle" font-family="'Space Grotesk','Helvetica Neue',Arial,sans-serif" font-weight="700" font-size="60" letter-spacing="-1.5">
+    <tspan fill="#C97B3D">AI</tspan><tspan fill="#13294B">4HB</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <text x="140" y="200" text-anchor="middle" font-family="'Space Grotesk','Helvetica Neue',Arial,sans-serif" font-weight="500" font-size="12.5" letter-spacing="2" fill="#13294B" opacity="0.55">AI FOR HOME BUILDERS</text>
+
+</svg>
