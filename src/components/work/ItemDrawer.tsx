@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { Check, Copy, Link2, Lock, Paperclip, Trash2, X } from "lucide-react";
@@ -13,21 +13,23 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DONE, PRIORITIES, TONES, isBlocked, prioMeta, statusOf, type Item, type Priority, type WorkState } from "@/lib/work";
+import { DONE, PRIORITIES, TONES, isBlocked, prioMeta, statusOf, type Board, type Item, type NewItemFields, type Priority, type WorkState } from "@/lib/work";
 import {
   addFile,
   addSubtask,
   addUpdate,
+  createItem,
   deleteFile,
   deleteItems,
   deleteSubtask,
   duplicateItem,
+  setCell,
   undo,
   updateItem,
   updateSubtask,
   usePeople,
 } from "./store";
-import { CellEditor, PeoplePicker, StatusPill, StatusSelect, fieldSelect } from "./ui";
+import { CellEditor, PeoplePicker, StatusPill, StatusSelect, fieldSelect, plainSelect } from "./ui";
 
 const MAX_PREVIEW_BYTES = 700_000; // inline image previews stay small
 
@@ -137,7 +139,7 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
             </Field>
             {board?.columns.map((c) => (
               <Field key={c.id} label={c.name}>
-                <CellEditor col={c} item={item} />
+                <CellEditor col={c} value={item.values[c.id]} onChange={(v) => setCell(item.id, c.id, v)} />
               </Field>
             ))}
           </div>
@@ -302,6 +304,143 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
             )}
           </div>
         </div>
+      </aside>
+    </div>
+  );
+}
+
+// ── New item (draft until saved) ─────────────────────────────
+
+type Draft = Required<Omit<NewItemFields, "due">> & { groupId: string; name: string; due: string };
+
+const draftKey = (boardId: string) => `aw_new_item_${boardId}`;
+
+function blankDraft(board: Board): Draft {
+  return { groupId: board.groups[0]?.id ?? "", name: "", status: board.statuses[0]?.key ?? "NOT_STARTED", priority: "MEDIUM", assignees: [], due: "", description: "", values: {} };
+}
+
+// Drafts live in localStorage per board, so closing the drawer (or reloading) keeps what was typed.
+function loadDraft(board: Board): Draft {
+  const blank = blankDraft(board);
+  try {
+    const saved = JSON.parse(localStorage.getItem(draftKey(board.id)) ?? "null") as Partial<Draft> | null;
+    if (!saved) return blank;
+    const d = { ...blank, ...saved };
+    if (!board.groups.some((g) => g.id === d.groupId)) d.groupId = blank.groupId;
+    if (!board.statuses.some((x) => x.key === d.status)) d.status = blank.status;
+    return d;
+  } catch {
+    return blank;
+  }
+}
+
+function storeDraft(boardId: string, d: Draft | null) {
+  try {
+    if (d) localStorage.setItem(draftKey(boardId), JSON.stringify(d));
+    else localStorage.removeItem(draftKey(boardId));
+  } catch {}
+}
+
+export function NewItemDrawer({ board, onClose, onCreated }: { board: Board; onClose: () => void; onCreated: (id: string) => void }) {
+  const [d, setD] = useState(() => loadDraft(board));
+  const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const set = (patch: Partial<Draft>) =>
+    setD((prev) => {
+      const next = { ...prev, ...patch };
+      storeDraft(board.id, next);
+      return next;
+    });
+
+  const save = async () => {
+    if (!d.name.trim()) return nameRef.current?.focus();
+    setBusy(true);
+    const { groupId, name, ...fields } = d;
+    const id = await createItem(board.id, groupId, name, fields);
+    setBusy(false);
+    if (!id) return;
+    storeDraft(board.id, null);
+    toast.success("Item created");
+    onCreated(id);
+  };
+
+  const discard = () => {
+    storeDraft(board.id, null);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-2xl flex-col bg-card shadow-2xl">
+        <header className="border-b px-6 py-4">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{board.name}</span>
+            <span>/</span>
+            <span className="font-medium">New item</span>
+            <div className="ml-auto flex gap-1">
+              <Button variant="ghost" size="icon-sm" title="Close (Esc). Your draft is kept" onClick={onClose}><X /></Button>
+            </div>
+          </div>
+          <input
+            ref={nameRef}
+            autoFocus
+            className="mt-1 w-full bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground/60"
+            placeholder="Item name"
+            value={d.name}
+            onChange={(e) => set({ name: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+          />
+        </header>
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-b px-6 py-4 text-sm sm:grid-cols-3">
+            <Field label="Group">
+              <select className={`${plainSelect} w-full`} value={d.groupId} onChange={(e) => set({ groupId: e.target.value })}>
+                {board.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Status">
+              <StatusSelect board={board} value={d.status} onChange={(v) => set({ status: v })} />
+            </Field>
+            <Field label="Priority">
+              <select className={`${fieldSelect} ${TONES[prioMeta(d.priority).tone].pill}`} value={d.priority} onChange={(e) => set({ priority: e.target.value as Priority })}>
+                {PRIORITIES.map((p) => <option key={p.key} value={p.key} className="bg-background text-foreground">{p.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Assigned to">
+              <PeoplePicker value={d.assignees} onChange={(a) => set({ assignees: a })} />
+            </Field>
+            <Field label="Due">
+              <Input type="date" className="h-8" value={d.due} onChange={(e) => set({ due: e.target.value })} />
+            </Field>
+            {board.columns.map((c) => (
+              <Field key={c.id} label={c.name}>
+                <CellEditor
+                  col={c}
+                  value={d.values[c.id]}
+                  onChange={(v) => {
+                    const values = { ...d.values };
+                    if (v === undefined || v === "") delete values[c.id];
+                    else values[c.id] = v;
+                    set({ values });
+                  }}
+                />
+              </Field>
+            ))}
+          </div>
+
+          <div className="px-6 pt-4">
+            <Textarea rows={5} placeholder="Add a description…" value={d.description} onChange={(e) => set({ description: e.target.value })} />
+            <p className="mt-2 text-xs text-muted-foreground">Subitems, files and updates can be added after saving.</p>
+          </div>
+        </div>
+
+        <footer className="flex items-center gap-2 border-t px-6 py-3">
+          <span className="text-xs text-muted-foreground">Draft is kept if you close this panel.</span>
+          <Button variant="ghost" className="ml-auto" onClick={discard}>Discard</Button>
+          <Button onClick={save} disabled={busy || !d.name.trim()}>{busy ? "Saving…" : "Save item"}</Button>
+        </footer>
       </aside>
     </div>
   );

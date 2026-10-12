@@ -1,10 +1,11 @@
 "use server";
 
 import bcrypt from "bcryptjs";
+import { format } from "date-fns";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
-import { createSession, destroySession, requireAdmin, requireUser } from "./auth";
+import { createSession, destroySession, requireUser } from "./auth";
 import {
   TEMPLATES,
   prioMeta,
@@ -17,6 +18,7 @@ import {
   type Group,
   type Item,
   type ItemPatch,
+  type NewItemFields,
   type Person,
   type Priority,
   type StatusDef,
@@ -88,20 +90,16 @@ function toBoard(b: Prisma.BoardGetPayload<{ include: { groups: true } }>): Boar
 // ponytail: loads the whole workspace in one go, fine for a team-sized demo; paginate per board if it grows.
 export async function getState(): Promise<WorkState> {
   const me = await requireUser();
-  const [users, boards, items, notifications, automations] = await Promise.all([
-    prisma.user.findMany({ select: { id: true, name: true, email: true, role: true }, orderBy: { createdAt: "asc" } }),
+  const [users, boards, items] = await Promise.all([
+    prisma.user.findMany({ select: { id: true, name: true, email: true }, orderBy: { createdAt: "asc" } }),
     prisma.board.findMany({ include: { groups: true }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] }),
     prisma.item.findMany({ where: { deletedAt: null }, include: itemInclude, orderBy: [{ position: "asc" }, { createdAt: "asc" }] }),
-    prisma.notification.findMany({ where: { userId: me.id }, orderBy: { createdAt: "desc" }, take: 100 }),
-    prisma.automation.findMany({ orderBy: { createdAt: "asc" } }),
   ]);
   return {
     me,
     users,
     boards: boards.map(toBoard),
     items: items.map(toItem),
-    notifications: notifications.map((n) => ({ id: n.id, text: n.text, itemId: n.itemId ?? undefined, at: n.createdAt.toISOString(), read: n.read })),
-    automations: automations.map((a) => ({ id: a.id, boardId: a.boardId ?? "*", trigger: a.trigger as unknown as Trigger, action: a.action as unknown as Action, enabled: a.enabled })),
   };
 }
 
@@ -193,11 +191,12 @@ async function nextPosition(groupId: string) {
   return (last._max.position ?? 0) + 1;
 }
 
-type ItemExtra = Partial<Pick<Prisma.ItemUncheckedCreateInput, "description" | "priority" | "values" | "assigneeIds">>;
+type ItemExtra = Partial<Pick<Prisma.ItemUncheckedCreateInput, "description" | "priority" | "values" | "assigneeIds" | "status" | "start" | "due">>;
 
 async function insertItem(boardId: string, groupId: string, name: string, actor: Person, extra: ItemExtra, firstActivity: string) {
   const row = await prisma.item.create({
-    data: { ...extra, boardId, groupId, name, position: await nextPosition(groupId) },
+    // ponytail: "today" is the server's date; pass the client's date in if users span timezones.
+    data: { ...extra, start: format(new Date(), "yyyy-MM-dd"), boardId, groupId, name, position: await nextPosition(groupId) },
   });
   const events: Event[] = [{ type: "created" }];
   if (row.assigneeIds.length) events.push({ type: "assigned", added: row.assigneeIds });
@@ -206,9 +205,18 @@ async function insertItem(boardId: string, groupId: string, name: string, actor:
   return row.id;
 }
 
-export async function createItem(boardId: string, groupId: string, name: string): Promise<string> {
+export async function createItem(boardId: string, groupId: string, name: string, f: NewItemFields = {}): Promise<string> {
   const me = await requireUser();
-  return insertItem(boardId, groupId, name.trim() || "New item", me, {}, `${me.name} created this item`);
+  // Pick fields explicitly so the client can't write anything else.
+  const extra: ItemExtra = {
+    status: f.status,
+    priority: f.priority,
+    assigneeIds: f.assignees,
+    due: f.due || null,
+    description: f.description,
+    values: f.values as Prisma.InputJsonValue | undefined,
+  };
+  return insertItem(boardId, groupId, name.trim() || "New item", me, extra, `${me.name} created this item`);
 }
 
 export async function updateItems(ids: string[], patch: ItemPatch, activityText?: string) {
@@ -316,7 +324,7 @@ export async function setCell(itemId: string, colId: string, value: CellValue | 
 
 export async function addUpdate(itemId: string, body: string) {
   const me = await requireUser();
-  const [item, users] = await Promise.all([prisma.item.findUnique({ where: { id: itemId } }), prisma.user.findMany()]);
+  const [item, users] = await Promise.all([prisma.item.findUnique({ where: { id: itemId } }), prisma.user.findMany({ select: { id: true, name: true } })]);
   if (!item || !body.trim()) return;
   const mentioned = users.filter((u) => body.includes(`@${u.name}`) && u.id !== me.id);
   await prisma.$transaction([
@@ -364,17 +372,16 @@ export async function deleteFile(id: string) {
   await prisma.file.delete({ where: { id } });
 }
 
-// ── Boards, groups, columns (admin) ─────────────────────────
+// ── Boards, groups, columns ─────────────────────────
 
-export async function createBoard(name: string, workspace: string, templateKey: string): Promise<string> {
-  await requireAdmin();
+export async function createBoard(name: string, templateKey: string): Promise<string> {
+  await requireUser();
   const tpl = TEMPLATES.find((t) => t.key === templateKey) ?? TEMPLATES[0];
   const made = tpl.make();
   const count = await prisma.board.count();
   const board = await prisma.board.create({
     data: {
       name: name.trim() || "Untitled board",
-      workspace: workspace.trim() || "Product",
       description: tpl.key === "blank" ? "" : `Created from the ${tpl.name} template.`,
       statuses: made.statuses as unknown as Prisma.InputJsonValue,
       columns: made.columns as unknown as Prisma.InputJsonValue,
@@ -385,14 +392,13 @@ export async function createBoard(name: string, workspace: string, templateKey: 
   return board.id;
 }
 
-export async function updateBoard(id: string, patch: Partial<Pick<Board, "name" | "description" | "workspace" | "statuses" | "columns">>) {
-  await requireAdmin();
+export async function updateBoard(id: string, patch: Partial<Pick<Board, "name" | "description" | "statuses" | "columns">>) {
+  await requireUser();
   await prisma.board.update({
     where: { id },
     data: {
       name: patch.name,
       description: patch.description,
-      workspace: patch.workspace,
       statuses: patch.statuses as unknown as Prisma.InputJsonValue | undefined,
       columns: patch.columns as unknown as Prisma.InputJsonValue | undefined,
     },
@@ -400,23 +406,23 @@ export async function updateBoard(id: string, patch: Partial<Pick<Board, "name" 
 }
 
 export async function deleteBoard(id: string) {
-  await requireAdmin();
+  await requireUser();
   await prisma.board.delete({ where: { id } });
 }
 
 export async function addGroup(boardId: string, name: string, color: string) {
-  await requireAdmin();
+  await requireUser();
   const count = await prisma.group.count({ where: { boardId } });
   await prisma.group.create({ data: { boardId, name, color, position: count } });
 }
 
 export async function updateGroup(groupId: string, patch: Partial<Pick<Group, "name" | "color">>) {
-  await requireAdmin();
+  await requireUser();
   await prisma.group.update({ where: { id: groupId }, data: patch });
 }
 
 export async function deleteGroup(groupId: string) {
-  await requireAdmin();
+  await requireUser();
   await prisma.group.delete({ where: { id: groupId } });
 }
 
@@ -430,7 +436,7 @@ export async function markRead() {
 // ── Automations (admin) ──────────────────────────────────────
 
 export async function addAutomation(a: Omit<Automation, "id" | "enabled">) {
-  await requireAdmin();
+  await requireUser();
   await prisma.automation.create({
     data: {
       boardId: a.boardId === "*" ? null : a.boardId,
@@ -441,13 +447,13 @@ export async function addAutomation(a: Omit<Automation, "id" | "enabled">) {
 }
 
 export async function toggleAutomation(id: string) {
-  await requireAdmin();
+  await requireUser();
   const a = await prisma.automation.findUnique({ where: { id } });
   if (a) await prisma.automation.update({ where: { id }, data: { enabled: !a.enabled } });
 }
 
 export async function deleteAutomation(id: string) {
-  await requireAdmin();
+  await requireUser();
   await prisma.automation.delete({ where: { id } });
 }
 
@@ -470,8 +476,8 @@ export async function submitForm(
   const values = Object.fromEntries(Object.entries(f.values).filter(([k, v]) => allowed.has(k) && v).map(([k, v]) => [k, String(v).slice(0, 500)]));
 
   // Automations run as a virtual "Form" actor.
-  const formActor: Person = { id: "__form", name: reporter, email, role: "USER" };
-  const itemId = await insertItem(
+  const formActor: Person = { id: "__form", name: reporter, email };
+  await insertItem(
     board.id,
     board.groups[0].id,
     name,
@@ -479,8 +485,6 @@ export async function submitForm(
     { description: `${f.description.slice(0, 5000)}\n\nSubmitted by ${reporter} <${email}>`, priority: f.priority, values },
     `${reporter} submitted this via the public form`,
   );
-  const admins = await prisma.user.findMany({ where: { role: "ADMIN" }, select: { id: true } });
-  await prisma.notification.createMany({ data: admins.map((a) => ({ userId: a.id, itemId, text: `New form submission on ${board.name}: “${name}”` })) });
   return { ok: true };
 }
 

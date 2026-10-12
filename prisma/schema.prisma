@@ -6,11 +6,6 @@ datasource db {
   provider = "postgresql"
 }
 
-enum Role {
-  ADMIN
-  USER
-}
-
 enum Priority {
   LOW
   MEDIUM
@@ -23,7 +18,6 @@ model User {
   email         String         @unique
   name          String
   passwordHash  String
-  role          Role           @default(USER)
   createdAt     DateTime       @default(now())
   updates       Update[]
   notifications Notification[]
@@ -34,9 +28,7 @@ model Board {
   name        String
   description String       @default("")
   workspace   String       @default("Product")
-  /// StatusDef[]: { key, label, tone }. The key "DONE" means complete.
   statuses    Json
-  /// Column[]: { id, name, type, options? }
   columns     Json         @default("[]")
   position    Int          @default(0)
   createdAt   DateTime     @default(now())
@@ -66,17 +58,13 @@ model Item {
   name        String
   status      String     @default("NOT_STARTED")
   priority    Priority   @default(MEDIUM)
-  /// User ids
   assigneeIds String[]   @default([])
-  start       String? // yyyy-MM-dd
-  due         String? // yyyy-MM-dd
+  start       String?
+  due         String? 
   description String     @default("")
-  /// Custom column values keyed by column id
   values      Json       @default("{}")
-  /// Item ids this item is blocked by
   dependsOn   String[]   @default([])
   position    Float      @default(0)
-  /// Soft delete so "Undo" can restore
   deletedAt   DateTime?
   createdAt   DateTime   @default(now())
   subtasks    Subtask[]
@@ -117,7 +105,6 @@ model File {
   itemId    String
   item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
   name      String
-  /// ponytail: image previews stored inline as data URLs, move to Supabase Storage for real files
   url       String?
   createdAt DateTime @default(now())
 
@@ -148,12 +135,9 @@ model Notification {
 
 model Automation {
   id        String   @id @default(cuid())
-  /// null = runs on all boards
   boardId   String?
   board     Board?   @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  /// { type: "created" | "assigned" } | { type: "status", to } | { type: "priority", to }
   trigger   Json
-  /// { type: "notify" | "assign" | "set_priority" | "set_status" | "move_group", value }
   action    Json
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now())

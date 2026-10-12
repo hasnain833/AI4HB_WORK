@@ -44,6 +44,7 @@ import {
   addColumn,
   addGroup,
   createItem,
+  setCell,
   deleteColumn,
   deleteGroup,
   moveItem,
@@ -54,6 +55,7 @@ import {
   usePeople,
 } from "./store";
 import { CellEditor, PeoplePicker, PriorityPill, StatusSelect, fieldSelect } from "./ui";
+import { confirmDialog } from "./dialogs";
 
 const todayStr = () => format(new Date(), "yyyy-MM-dd");
 const isOverdue = (i: Item) => !!i.due && i.status !== DONE && i.due < todayStr();
@@ -72,7 +74,6 @@ export function TableView({
   onSort,
   selected,
   onSelect,
-  canManage,
 }: {
   board: Board;
   items: Item[];
@@ -82,7 +83,6 @@ export function TableView({
   onSort: (k: SortKey) => void;
   selected: Set<string>;
   onSelect: (ids: string[], on: boolean) => void;
-  canManage: boolean;
 }) {
   const { nameOf } = usePeople();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -123,14 +123,13 @@ export function TableView({
               <input
                 key={g.name}
                 defaultValue={g.name}
-                readOnly={!canManage}
                 onBlur={(e) => e.target.value.trim() && e.target.value !== g.name && updateGroup(board.id, g.id, { name: e.target.value.trim() })}
-                className="w-auto bg-transparent text-base font-semibold outline-none focus:underline read-only:focus:no-underline"
+                className="w-auto bg-transparent text-base font-semibold outline-none focus:underline"
                 style={{ color: g.color }}
                 size={Math.max(g.name.length, 4)}
               />
               <span className="text-xs text-muted-foreground">{rows.length} items</span>
-              {canManage && <DropdownMenu>
+              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="rounded p-0.5 text-muted-foreground hover:bg-muted"><MoreHorizontal className="size-4" /></button>
                 </DropdownMenuTrigger>
@@ -145,14 +144,14 @@ export function TableView({
                   <DropdownMenuItem
                     className="text-red-600"
                     disabled={board.groups.length <= 1}
-                    onSelect={() => {
-                      if (confirm(`Delete group “${g.name}” and its ${rows.length} items?`)) deleteGroup(board.id, g.id);
+                    onSelect={async () => {
+                      if (await confirmDialog(`Delete group “${g.name}” and its ${rows.length} items?`)) deleteGroup(board.id, g.id);
                     }}
                   >
                     Delete group
                   </DropdownMenuItem>
                 </DropdownMenuContent>
-              </DropdownMenu>}
+              </DropdownMenu>
             </div>
 
             {open && (
@@ -175,25 +174,22 @@ export function TableView({
                             <input
                               key={c.name}
                               defaultValue={c.name}
-                              readOnly={!canManage}
-                              title={`${COLUMN_TYPES.find((t) => t.type === c.type)?.label} column${canManage ? ". Click to rename" : ""}`}
+                              title={`${COLUMN_TYPES.find((t) => t.type === c.type)?.label} column. Click to rename`}
                               onBlur={(e) => e.target.value.trim() && e.target.value !== c.name && updateColumn(board, c.id, { name: e.target.value.trim() })}
                               className="w-full min-w-0 bg-transparent uppercase outline-none focus:normal-case focus:text-foreground"
                             />
-                            {canManage && (
                               <button
                                 className="hidden text-muted-foreground hover:text-red-600 group-hover/col:block"
                                 title="Delete column"
-                                onClick={() => confirm(`Delete column “${c.name}”?`) && deleteColumn(board, c.id)}
+                                onClick={async () => (await confirmDialog(`Delete column “${c.name}”?`)) && deleteColumn(board, c.id)}
                               >
                                 <X className="size-3" />
                               </button>
-                            )}
                           </div>
                         </th>
                       ))}
                       <th className="w-10 px-1 py-2">
-                        {canManage && <DropdownMenu>
+                        <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button className="flex size-6 items-center justify-center rounded hover:bg-muted" title="Add column"><Plus className="size-4" /></button>
                           </DropdownMenuTrigger>
@@ -203,7 +199,7 @@ export function TableView({
                               <DropdownMenuItem key={t.type} onSelect={() => addColumn(board, t.type)}>{t.label}</DropdownMenuItem>
                             ))}
                           </DropdownMenuContent>
-                        </DropdownMenu>}
+                        </DropdownMenu>
                       </th>
                     </tr>
                   </thead>
@@ -263,7 +259,7 @@ export function TableView({
                           <td className={`px-2 py-1 text-xs ${isOverdue(i) ? "font-semibold text-red-600" : "text-muted-foreground"}`}>
                             {i.due ? format(parseISO(i.due), "MMM d") : "—"}
                           </td>
-                          {board.columns.map((c) => <td key={c.id} className="px-1 py-1"><CellEditor col={c} item={i} /></td>)}
+                          {board.columns.map((c) => <td key={c.id} className="px-1 py-1"><CellEditor col={c} value={i.values[c.id]} onChange={(v) => setCell(i.id, c.id, v)} /></td>)}
                           <td />
                         </tr>,
                         ...(showSubs
@@ -316,7 +312,7 @@ export function TableView({
         );
       })}
 
-      {canManage && <div className="flex max-w-sm gap-2">
+      <div className="flex max-w-sm gap-2">
         <input
           value={newGroup}
           onChange={(e) => setNewGroup(e.target.value)}
@@ -327,7 +323,7 @@ export function TableView({
         <Button variant="outline" onClick={() => { if (newGroup.trim()) addGroup(board, newGroup.trim()); setNewGroup(""); }}>
           <Plus /> Add group
         </Button>
-      </div>}
+      </div>
     </div>
   );
 }

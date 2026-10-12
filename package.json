@@ -9,7 +9,6 @@
     "start": "next start -p 3001",
     "lint": "eslint",
     "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -43,7 +42,6 @@
     "eslint-config-next": "16.2.6",
     "shadcn": "^4.7.0",
     "tailwindcss": "^4",
-    "tsx": "^4.20.0",
     "typescript": "^5"
   }
 }

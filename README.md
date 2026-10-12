@@ -10,23 +10,21 @@ Stack: Next.js 16 (App Router, server actions) · Prisma 7 · PostgreSQL (Supaba
    - `DATABASE_URL`: Supabase **Transaction pooler** string (port 6543, add `?pgbouncer=true`)
    - `DIRECT_URL`: Supabase **Session pooler** or direct string (port 5432), used for schema changes
    - `AUTH_SECRET`: any long random string (`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
-   - `SEED_ADMIN_PASSWORD`, `SEED_USER_PASSWORD`: passwords for the two accounts (8+ characters)
 2. Install and create the tables:
    ```bash
    npm install
    npm run db:push     # creates the tables in Supabase
-   npm run db:seed     # creates the 2 accounts + sample boards
    ```
 3. Run it: `npm run dev` → http://localhost:3001
 
 ## Accounts
 
-| Email | Role | Can do |
-|---|---|---|
-| `admin@ai4home.work` | Admin | Everything: create/delete boards, groups, columns, statuses, automations |
-| `user@ai4home.work` | User | Work on items: create, edit, assign, comment, subitems, files, bulk edits |
+| Email | Password |
+|---|---|
+| `steven@gmail.com` | `password123` |
+| `ghulam@gmail.com` | `password123` |
 
-Re-running `npm run db:seed` resets both passwords to the values in `.env` and never touches existing boards.
+There are no roles: every account can do everything. Accounts live in the database; there is no sign-up or seed script.
 
 ## Where things live
 

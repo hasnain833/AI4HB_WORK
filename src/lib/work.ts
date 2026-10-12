@@ -1,12 +1,11 @@
 // Shared types, constants and helpers, safe to import from server and client.
 
 export type Priority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-export type Role = "ADMIN" | "USER";
 export type Tone = "neutral" | "navy" | "gold" | "green" | "red" | "slate";
 export type ColumnType = "text" | "number" | "dropdown" | "checkbox" | "link" | "rating" | "date";
 export type CellValue = string | number | boolean;
 
-export interface Person { id: string; name: string; email: string; role: Role }
+export interface Person { id: string; name: string; email: string }
 export interface StatusDef { key: string; label: string; tone: Tone }
 export interface Column { id: string; name: string; type: ColumnType; options?: string[] }
 export interface Group { id: string; name: string; color: string }
@@ -61,11 +60,10 @@ export interface WorkState {
   users: Person[];
   boards: Board[];
   items: Item[];
-  notifications: Notification[];
-  automations: Automation[];
 }
 
 /** Fields of an item the client may patch directly. */
+export type NewItemFields = Partial<Pick<Item, "status" | "priority" | "assignees" | "due" | "description" | "values">>;
 export type ItemPatch = Partial<Pick<Item, "name" | "status" | "priority" | "assignees" | "start" | "due" | "description" | "dependsOn" | "groupId">>;
 
 // ── Reference data ───────────────────────────────────────────

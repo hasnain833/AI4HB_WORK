@@ -6,7 +6,7 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import * as api from "@/lib/actions";
-import { GROUP_COLORS, COLUMN_TYPES, type Automation, type Board, type CellValue, type ColumnType, type Group, type Item, type ItemPatch, type Person, type WorkState } from "@/lib/work";
+import { GROUP_COLORS, COLUMN_TYPES, type Board, type CellValue, type ColumnType, type Group, type Item, type ItemPatch, type NewItemFields, type Person, type WorkState } from "@/lib/work";
 
 let state: WorkState | null = null;
 const listeners = new Set<() => void>();
@@ -71,7 +71,7 @@ export function undo(): boolean {
 
 // ── Items ────────────────────────────────────────────────────
 
-export const createItem = (boardId: string, groupId: string, name: string) => run(api.createItem(boardId, groupId, name));
+export const createItem = (boardId: string, groupId: string, name: string, fields?: NewItemFields) => run(api.createItem(boardId, groupId, name, fields));
 
 export const updateItem = (id: string, patch: ItemPatch, activityText?: string) => updateItems([id], patch, activityText);
 
@@ -123,8 +123,8 @@ export const deleteFile = (itemId: string, id: string) =>
 
 // ── Boards ───────────────────────────────────────────────────
 
-export const createBoard = (name: string, workspace: string, templateKey: string) => run(api.createBoard(name, workspace, templateKey));
-export const updateBoard = (id: string, patch: Partial<Pick<Board, "name" | "description" | "workspace" | "statuses" | "columns">>) =>
+export const createBoard = (name: string, templateKey: string) => run(api.createBoard(name, templateKey));
+export const updateBoard = (id: string, patch: Partial<Pick<Board, "name" | "description" | "statuses" | "columns">>) =>
   run(api.updateBoard(id, patch), patchBoard(id, (b) => ({ ...b, ...patch })));
 export const deleteBoard = (id: string) => run(api.deleteBoard(id), (s) => ({ ...s, boards: s.boards.filter((b) => b.id !== id) }));
 
@@ -144,11 +144,3 @@ export const updateColumn = (board: Board, colId: string, patch: Partial<Board["
   updateBoard(board.id, { columns: board.columns.map((c) => (c.id === colId ? { ...c, ...patch } : c)) });
 export const deleteColumn = (board: Board, colId: string) => updateBoard(board.id, { columns: board.columns.filter((c) => c.id !== colId) });
 
-// ── Notifications & automations ─────────────────────────────
-
-export const markRead = () => run(api.markRead(), (s) => ({ ...s, notifications: s.notifications.map((n) => ({ ...n, read: true })) }));
-export const addAutomation = (a: Omit<Automation, "id" | "enabled">) => run(api.addAutomation(a));
-export const toggleAutomation = (id: string) =>
-  run(api.toggleAutomation(id), (s) => ({ ...s, automations: s.automations.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)) }));
-export const deleteAutomation = (id: string) =>
-  run(api.deleteAutomation(id), (s) => ({ ...s, automations: s.automations.filter((a) => a.id !== id) }));

@@ -40,18 +40,12 @@ export async function getSessionUser(): Promise<Person | null> {
   const given = Buffer.from(mac);
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
   if (Number(exp) < Date.now()) return null;
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true, role: true } });
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true } });
   return u;
 }
 
 export async function requireUser(): Promise<Person> {
   const u = await getSessionUser();
   if (!u) throw new Error("Not signed in");
-  return u;
-}
-
-export async function requireAdmin(): Promise<Person> {
-  const u = await requireUser();
-  if (u.role !== "ADMIN") throw new Error("Only admins can do this");
   return u;
 }

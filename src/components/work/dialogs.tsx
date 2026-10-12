@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { LayoutList, Plus, Search, Trash2, X, Zap } from "lucide-react";
+import { LayoutList, Plus, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,28 +12,51 @@ import {
   COLUMN_TYPES,
   DEFAULT_STATUSES,
   DONE,
-  PRIORITIES,
   TEMPLATES,
   TONES,
-  prioMeta,
-  statusOf,
-  type Action,
-  type Automation,
   type Board,
   type ColumnType,
-  type Priority,
   type Tone,
-  type Trigger,
   type WorkState,
 } from "@/lib/work";
-import { addAutomation, createBoard, deleteBoard, deleteColumn, updateBoard, updateColumn, usePeople } from "./store";
+import { createBoard, deleteBoard, deleteColumn, updateBoard, updateColumn, usePeople } from "./store";
 import { StatusPill, plainSelect } from "./ui";
+
+// ── Confirm (replaces window.confirm) ────────────────────────
+
+type ConfirmReq = { text: string; resolve: (ok: boolean) => void };
+let showConfirm: ((req: ConfirmReq) => void) | null = null;
+
+export const confirmDialog = (text: string) =>
+  new Promise<boolean>((resolve) => (showConfirm ? showConfirm({ text, resolve }) : resolve(false)));
+
+export function ConfirmHost() {
+  const [req, setReq] = useState<ConfirmReq | null>(null);
+  useEffect(() => {
+    showConfirm = setReq;
+    return () => { showConfirm = null; };
+  }, []);
+  const close = (ok: boolean) => { req?.resolve(ok); setReq(null); };
+  return (
+    <Dialog open={!!req} onOpenChange={(o) => !o && close(false)}>
+      <DialogContent showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>Are you sure?</DialogTitle>
+          <DialogDescription>{req?.text}</DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => close(false)}>Cancel</Button>
+          <Button variant="destructive" autoFocus onClick={() => close(true)}>Delete</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ── New board ────────────────────────────────────────────────
 
-export function NewBoardDialog({ open, onClose, workspaces, onCreated }: { open: boolean; onClose: () => void; workspaces: string[]; onCreated: (id: string) => void }) {
+export function NewBoardDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
   const [name, setName] = useState("");
-  const [workspace, setWorkspace] = useState(workspaces[0] ?? "Product");
   const [tpl, setTpl] = useState("blank");
   const [busy, setBusy] = useState(false);
   return (
@@ -48,7 +71,7 @@ export function NewBoardDialog({ open, onClose, workspaces, onCreated }: { open:
           onSubmit={async (e) => {
             e.preventDefault();
             setBusy(true);
-            const id = await createBoard(name.trim() || "Untitled board", workspace, tpl);
+            const id = await createBoard(name.trim() || "Untitled board", tpl);
             setBusy(false);
             if (!id) return;
             setName("");
@@ -56,16 +79,9 @@ export function NewBoardDialog({ open, onClose, workspaces, onCreated }: { open:
             onClose();
           }}
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="nb-name">Board name</Label>
-              <Input id="nb-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Marketing Q4" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="nb-ws">Workspace</Label>
-              <Input id="nb-ws" list="nb-ws-list" value={workspace} onChange={(e) => setWorkspace(e.target.value)} />
-              <datalist id="nb-ws-list">{workspaces.map((w) => <option key={w} value={w} />)}</datalist>
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="nb-name">Board name</Label>
+            <Input id="nb-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Marketing Q4" />
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {TEMPLATES.map((t) => (
@@ -100,15 +116,9 @@ export function BoardSettingsDialog({ board, open, onClose, onDeleted }: { board
         </DialogHeader>
 
         <section className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Name</Label>
-              <Input defaultValue={board.name} key={board.id + "n"} onBlur={(e) => e.target.value.trim() && e.target.value !== board.name && updateBoard(board.id, { name: e.target.value.trim() })} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Workspace</Label>
-              <Input defaultValue={board.workspace} key={board.id + "w"} onBlur={(e) => e.target.value.trim() && e.target.value !== board.workspace && updateBoard(board.id, { workspace: e.target.value.trim() })} />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Name</Label>
+            <Input defaultValue={board.name} key={board.id + "n"} onBlur={(e) => e.target.value.trim() && e.target.value !== board.name && updateBoard(board.id, { name: e.target.value.trim() })} />
           </div>
           <div className="space-y-1.5">
             <Label>Description</Label>
@@ -163,7 +173,7 @@ export function BoardSettingsDialog({ board, open, onClose, onDeleted }: { board
                 >
                   {COLUMN_TYPES.map((t) => <option key={t.type} value={t.type}>{t.label}</option>)}
                 </select>
-                <Button variant="ghost" size="icon-sm" onClick={() => confirm(`Delete column “${c.name}”?`) && deleteColumn(board, c.id)}><Trash2 /></Button>
+                <Button variant="ghost" size="icon-sm" onClick={async () => (await confirmDialog(`Delete column “${c.name}”?`)) && deleteColumn(board, c.id)}><Trash2 /></Button>
               </div>
               {c.type === "dropdown" && (
                 <Input
@@ -184,8 +194,8 @@ export function BoardSettingsDialog({ board, open, onClose, onDeleted }: { board
           </div>
           <Button
             variant="destructive"
-            onClick={() => {
-              if (!confirm(`Delete board “${board.name}” and all its items?`)) return;
+            onClick={async () => {
+              if (!(await confirmDialog(`Delete board “${board.name}” and all its items? This can’t be undone.`))) return;
               deleteBoard(board.id);
               onDeleted();
               onClose();
@@ -233,7 +243,6 @@ export function SearchDialog({ state, open, onClose, onOpenItem, onOpenBoard }: 
           {boards.map((b) => (
             <button key={b.id} onClick={() => { onOpenBoard(b.id); close(); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted">
               <LayoutList className="size-4 text-muted-foreground" /> {b.name}
-              <span className="ml-auto text-xs text-muted-foreground">{b.workspace}</span>
             </button>
           ))}
           {items.length > 0 && <div className="mt-2 px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">Items</div>}
@@ -251,123 +260,5 @@ export function SearchDialog({ state, open, onClose, onOpenItem, onOpenBoard }: 
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// ── Automations ──────────────────────────────────────────────
-
-export function useDescribeAutomation() {
-  const { nameOf } = usePeople();
-  return (a: Automation, boards: Board[]) => {
-    const board = boards.find((b) => b.id === a.boardId);
-    const t = a.trigger;
-    const when =
-      t.type === "created" ? "When an item is created"
-        : t.type === "assigned" ? "When someone is assigned"
-          : t.type === "status" ? `When status changes to ${board ? statusOf(board, t.to).label : (DEFAULT_STATUSES.find((x) => x.key === t.to)?.label ?? t.to)}`
-            : `When priority changes to ${prioMeta(t.to).label}`;
-    const x = a.action;
-    const then =
-      x.type === "notify" ? `notify ${x.value === "__assignees" ? "the assignees" : nameOf(x.value)}`
-        : x.type === "assign" ? `assign ${nameOf(x.value)}`
-          : x.type === "set_priority" ? `set priority to ${prioMeta(x.value).label}`
-            : x.type === "set_status" ? `set status to ${statusOf(board, x.value).label}`
-              : `move item to group “${board?.groups.find((gr) => gr.id === x.value)?.name ?? "?"}”`;
-    return { when, then, scope: board ? board.name : "All boards" };
-  };
-}
-
-export function AutomationBuilder({ state, open, onClose }: { state: WorkState; open: boolean; onClose: () => void }) {
-  const { people } = usePeople();
-  const [boardId, setBoardId] = useState("*");
-  const [trig, setTrig] = useState<Trigger["type"]>("status");
-  const [trigVal, setTrigVal] = useState(DONE);
-  const [act, setAct] = useState<Action["type"]>("notify");
-  const [actVal, setActVal] = useState(people[0]?.id ?? "");
-  const board = state.boards.find((b) => b.id === boardId);
-  const statuses = board?.statuses ?? DEFAULT_STATUSES;
-
-  const pickTrig = (t: Trigger["type"]) => {
-    setTrig(t);
-    setTrigVal(t === "status" ? DONE : t === "priority" ? "CRITICAL" : "");
-  };
-  const pickAct = (a: Action["type"]) => {
-    setAct(a);
-    setActVal(a === "notify" || a === "assign" ? (people[0]?.id ?? "") : a === "set_priority" ? "HIGH" : a === "set_status" ? statuses[0].key : (board?.groups[0]?.id ?? ""));
-  };
-
-  const save = async () => {
-    const trigger: Trigger = trig === "status" ? { type: "status", to: trigVal } : trig === "priority" ? { type: "priority", to: trigVal as Priority } : { type: trig };
-    const action = { type: act, value: actVal } as Action;
-    await addAutomation({ boardId, trigger, action });
-    toast.success("Automation created");
-    onClose();
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Zap className="size-5 text-[#b48c3c]" /> New automation</DialogTitle>
-          <DialogDescription>When something happens, do something automatically.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 text-sm">
-          <Row label="On board">
-            <select className={`${plainSelect} w-full`} value={boardId} onChange={(e) => { setBoardId(e.target.value); if (act === "move_group" || act === "set_status") pickAct("notify"); }}>
-              <option value="*">All boards</option>
-              {state.boards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </Row>
-          <Row label="When">
-            <div className="flex gap-2">
-              <select className={`${plainSelect} flex-1`} value={trig} onChange={(e) => pickTrig(e.target.value as Trigger["type"])}>
-                <option value="status">status changes to</option>
-                <option value="priority">priority changes to</option>
-                <option value="created">an item is created</option>
-                <option value="assigned">someone is assigned</option>
-              </select>
-              {trig === "status" && (
-                <select className={`${plainSelect} flex-1`} value={trigVal} onChange={(e) => setTrigVal(e.target.value)}>
-                  {statuses.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                </select>
-              )}
-              {trig === "priority" && (
-                <select className={`${plainSelect} flex-1`} value={trigVal} onChange={(e) => setTrigVal(e.target.value)}>
-                  {PRIORITIES.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-                </select>
-              )}
-            </div>
-          </Row>
-          <Row label="Then">
-            <div className="flex gap-2">
-              <select className={`${plainSelect} flex-1`} value={act} onChange={(e) => pickAct(e.target.value as Action["type"])}>
-                <option value="notify">notify</option>
-                <option value="assign">assign</option>
-                <option value="set_priority">set priority to</option>
-                {board && <option value="set_status">set status to</option>}
-                {board && <option value="move_group">move to group</option>}
-              </select>
-              <select className={`${plainSelect} flex-1`} value={actVal} onChange={(e) => setActVal(e.target.value)}>
-                {(act === "notify" || act === "assign") && people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                {act === "notify" && <option value="__assignees">the assignees</option>}
-                {act === "set_priority" && PRIORITIES.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-                {act === "set_status" && statuses.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                {act === "move_group" && board?.groups.map((gr) => <option key={gr.id} value={gr.id}>{gr.name}</option>)}
-              </select>
-            </div>
-          </Row>
-          <Button className="w-full" onClick={save}>Create automation</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-[80px_1fr] items-center gap-2">
-      <span className="font-medium text-muted-foreground">{label}</span>
-      {children}
-    </div>
   );
 }

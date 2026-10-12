@@ -3,14 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { format, formatDistanceToNow, parseISO, addDays, isToday } from "date-fns";
+import { format, parseISO, addDays } from "date-fns";
 import {
-  Bell,
   CalendarDays,
   ClipboardList,
   GanttChart,
   Home,
-  Inbox,
   KanbanSquare,
   Keyboard,
   LayoutList,
@@ -20,13 +18,11 @@ import {
   Plus,
   Search,
   Settings,
-  SquareCheck,
   Sun,
   Table2,
   Trash2,
   Undo2,
   X,
-  Zap,
 } from "lucide-react";
 import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
@@ -35,24 +31,20 @@ import { logout } from "@/lib/actions";
 import { DONE, PRIORITIES, TONES, statusOf, type Board, type Item, type Priority, type WorkState } from "@/lib/work";
 import {
   PeopleContext,
-  createItem,
-  deleteAutomation,
   deleteItems,
   initState,
-  markRead,
   refresh,
-  toggleAutomation,
   undo,
   updateItems,
   usePeople,
   useWork,
 } from "./store";
 import { CalendarView, KanbanView, TableView, TimelineView, type Sort, type SortKey } from "./BoardViews";
-import { ItemDrawer } from "./ItemDrawer";
-import { AutomationBuilder, BoardSettingsDialog, NewBoardDialog, SearchDialog, useDescribeAutomation } from "./dialogs";
-import { PriorityPill, StatusPill, plainSelect } from "./ui";
+import { ItemDrawer, NewItemDrawer } from "./ItemDrawer";
+import { BoardSettingsDialog, ConfirmHost, NewBoardDialog, SearchDialog } from "./dialogs";
+import { StatusPill, plainSelect } from "./ui";
 
-type Page = { kind: "home" } | { kind: "mywork" } | { kind: "inbox" } | { kind: "automations" } | { kind: "board"; id: string };
+type Page = { kind: "home" } | { kind: "board"; id: string };
 type View = "table" | "kanban" | "calendar" | "timeline";
 
 const VIEWS: { key: View; label: string; icon: typeof Table2 }[] = [
@@ -74,6 +66,7 @@ export function WorkApp({ initial }: { initial: WorkState }) {
   const state = useWork() ?? initial;
   const [page, setPage] = useState<Page>(() => (initial.boards[0] ? { kind: "board", id: initial.boards[0].id } : { kind: "home" }));
   const [openId, setOpenId] = useState<string | null>(null);
+  const [newFor, setNewFor] = useState<string | null>(null); // board id the new-item drawer is open for
   const [navOpen, setNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [newBoardOpen, setNewBoardOpen] = useState(false);
@@ -96,6 +89,7 @@ export function WorkApp({ initial }: { initial: WorkState }) {
         if (undo()) toast("Undone");
       } else if (e.key === "Escape") {
         setOpenId(null);
+        setNewFor(null);
       } else if (e.key === "?" && !typing(e)) {
         setHelpOpen((h) => !h);
       }
@@ -105,9 +99,9 @@ export function WorkApp({ initial }: { initial: WorkState }) {
   }, []);
 
   const open = state.items.find((i) => i.id === openId);
+  const newBoard = state.boards.find((b) => b.id === newFor);
   const go = (p: Page) => { setPage(p); setNavOpen(false); };
   const boardExists = page.kind !== "board" || state.boards.some((b) => b.id === page.id);
-  const canManage = state.me.role === "ADMIN";
 
   return (
     <PeopleContext.Provider value={state.users}>
@@ -121,24 +115,20 @@ export function WorkApp({ initial }: { initial: WorkState }) {
             <Button variant="outline" size="icon" onClick={() => setSearchOpen(true)}><Search /></Button>
           </div>
           {(page.kind === "home" || !boardExists) && <Dashboard state={state} onOpen={setOpenId} />}
-          {page.kind === "mywork" && <MyWork state={state} onOpen={setOpenId} />}
-          {page.kind === "inbox" && <InboxPage state={state} onOpen={setOpenId} />}
-          {page.kind === "automations" && <Automations state={state} canManage={canManage} />}
           {page.kind === "board" && boardExists && (
-            <BoardPage key={page.id} state={state} boardId={page.id} onOpen={setOpenId} onDeleted={() => go({ kind: "home" })} canManage={canManage} />
+            <BoardPage key={page.id} state={state} boardId={page.id} onOpen={setOpenId} onNew={() => setNewFor(page.id)} onDeleted={() => go({ kind: "home" })} />
           )}
         </main>
 
         {open && <ItemDrawer item={open} state={state} onClose={() => setOpenId(null)} onOpen={setOpenId} />}
+        {newBoard && <NewItemDrawer key={newBoard.id} board={newBoard} onClose={() => setNewFor(null)} onCreated={() => setNewFor(null)} />}
         <SearchDialog state={state} open={searchOpen} onClose={() => setSearchOpen(false)} onOpenItem={setOpenId} onOpenBoard={(id) => go({ kind: "board", id })} />
-        {canManage && (
-          <NewBoardDialog
-            open={newBoardOpen}
-            onClose={() => setNewBoardOpen(false)}
-            workspaces={[...new Set(state.boards.map((b) => b.workspace))]}
-            onCreated={(id) => go({ kind: "board", id })}
-          />
-        )}
+        <NewBoardDialog
+          open={newBoardOpen}
+          onClose={() => setNewBoardOpen(false)}
+          onCreated={(id) => go({ kind: "board", id })}
+        />
+        <ConfirmHost />
         {helpOpen && <ShortcutsHelp onClose={() => setHelpOpen(false)} />}
       </div>
     </PeopleContext.Provider>
@@ -149,14 +139,12 @@ export function WorkApp({ initial }: { initial: WorkState }) {
 
 function Sidebar({ state, page, go, open, onSearch, onNewBoard, onHelp }: { state: WorkState; page: Page; go: (p: Page) => void; open: boolean; onSearch: () => void; onNewBoard: () => void; onHelp: () => void }) {
   const { resolvedTheme, setTheme } = useTheme();
-  const unread = state.notifications.filter((n) => !n.read).length;
-  const workspaces = [...new Set(state.boards.map((b) => b.workspace))];
   const navCls = (active: boolean) =>
     `flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${active ? "bg-white/10 font-medium text-white" : "text-white/70 hover:bg-white/5 hover:text-white"}`;
 
   return (
     <aside
-      className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-[#0e1623] text-white transition-transform md:sticky md:top-0 md:h-screen md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
+      className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-sidebar-border bg-sidebar text-white transition-transform md:sticky md:top-0 md:h-screen md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
     >
       <div className="px-5 pb-3 pt-5">
         <BrandLogo className="h-9 w-auto" onDark />
@@ -172,28 +160,25 @@ function Sidebar({ state, page, go, open, onSearch, onNewBoard, onHelp }: { stat
 
       <nav className="no-scrollbar flex-1 space-y-1 overflow-y-auto px-3">
         <button className={navCls(page.kind === "home")} onClick={() => go({ kind: "home" })}><Home className="size-4" /> Dashboard</button>
-        <button className={navCls(page.kind === "mywork")} onClick={() => go({ kind: "mywork" })}><SquareCheck className="size-4" /> My work</button>
-        <button className={navCls(page.kind === "inbox")} onClick={() => go({ kind: "inbox" })}>
-          <Inbox className="size-4" /> Inbox
-          {unread > 0 && <span className="ml-auto rounded-full bg-[#b48c3c] px-1.5 text-[11px] font-semibold text-white">{unread}</span>}
-        </button>
-        <button className={navCls(page.kind === "automations")} onClick={() => go({ kind: "automations" })}><Zap className="size-4" /> Automations</button>
 
-        {workspaces.map((ws) => (
-          <div key={ws}>
-            <div className="flex items-center px-3 pb-1 pt-5 text-[11px] uppercase tracking-widest text-white/40">{ws}</div>
-            {state.boards.filter((b) => b.workspace === ws).map((b) => (
-              <button key={b.id} className={navCls(page.kind === "board" && page.id === b.id)} onClick={() => go({ kind: "board", id: b.id })}>
-                <LayoutList className="size-4" />
-                <span className="truncate">{b.name}</span>
-                <span className="ml-auto text-[11px] text-white/40">{state.items.filter((i) => i.boardId === b.id && i.status !== DONE).length}</span>
-              </button>
-            ))}
-          </div>
-        ))}
-        {state.me.role === "ADMIN" && (
-          <button onClick={onNewBoard} className="mt-2 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white/50 hover:bg-white/5 hover:text-white">
-            <Plus className="size-4" /> New board
+        <div className="flex items-center justify-between px-3 pb-1 pt-5">
+          <span className="text-[11px] font-semibold uppercase tracking-widest text-white/40">Boards</span>
+          <button onClick={onNewBoard} className="rounded-md p-1 text-white/50 hover:bg-white/10 hover:text-white" title="New board"><Plus className="size-3.5" /></button>
+        </div>
+        {state.boards.map((b) => {
+          const openCount = state.items.filter((i) => i.boardId === b.id && i.status !== DONE).length;
+          const active = page.kind === "board" && page.id === b.id;
+          return (
+            <button key={b.id} className={navCls(active)} onClick={() => go({ kind: "board", id: b.id })}>
+              <LayoutList className={`size-4 shrink-0 ${active ? "text-[#d4a853]" : ""}`} />
+              <span className="truncate">{b.name}</span>
+              {openCount > 0 && <span className="ml-auto rounded-full bg-white/10 px-1.5 text-[11px] text-white/60">{openCount}</span>}
+            </button>
+          );
+        })}
+        {state.boards.length === 0 && (
+          <button onClick={onNewBoard} className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center gap-2 rounded-lg border border-dashed border-white/15 px-3 py-3 text-sm text-white/50 hover:border-white/30 hover:text-white">
+            <Plus className="size-4" /> Create your first board
           </button>
         )}
       </nav>
@@ -202,7 +187,7 @@ function Sidebar({ state, page, go, open, onSearch, onNewBoard, onHelp }: { stat
         <div className="flex items-center gap-2 px-1">
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{state.me.name}</div>
-            <div className="truncate text-[11px] text-white/40">{state.me.role === "ADMIN" ? "Admin" : "User"} · {state.me.email}</div>
+            <div className="truncate text-[11px] text-white/40">{state.me.email}</div>
           </div>
           <form action={logout}>
             <button className="rounded-lg p-1.5 text-white/50 hover:bg-white/5 hover:text-white" title="Log out"><LogOut className="size-4" /></button>
@@ -210,7 +195,7 @@ function Sidebar({ state, page, go, open, onSearch, onNewBoard, onHelp }: { stat
         </div>
         <div className="flex gap-1">
           <button onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-white/50 hover:bg-white/5 hover:text-white" title="Toggle theme">
-            {resolvedTheme === "dark" ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />} Theme
+            <Sun className="hidden size-3.5 dark:block" /><Moon className="size-3.5 dark:hidden" /> Theme
           </button>
           <button onClick={onHelp} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-white/50 hover:bg-white/5 hover:text-white" title="Keyboard shortcuts (?)">
             <Keyboard className="size-3.5" /> Keys
@@ -225,7 +210,7 @@ function Sidebar({ state, page, go, open, onSearch, onNewBoard, onHelp }: { stat
 
 const PRIO_RANK: Record<Priority, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
 
-function BoardPage({ state, boardId, onOpen, onDeleted, canManage }: { state: WorkState; boardId: string; onOpen: (id: string) => void; onDeleted: () => void; canManage: boolean }) {
+function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkState; boardId: string; onOpen: (id: string) => void; onNew: () => void; onDeleted: () => void }) {
   const { people, nameOf } = usePeople();
   const [view, setView] = useState<View>("table");
   const [q, setQ] = useState("");
@@ -257,17 +242,12 @@ function BoardPage({ state, boardId, onOpen, onDeleted, canManage }: { state: Wo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.items, boardId, q, person, status, sort, board.statuses]);
 
-  const newItem = async () => {
-    const id = await createItem(board.id, board.groups[0].id, "New item");
-    if (id) onOpen(id);
-  };
-
   // "n" = new item
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "n" && !e.ctrlKey && !e.metaKey && !typing(e) && !document.querySelector("[role=dialog]")) {
         e.preventDefault();
-        void newItem();
+        onNew();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -287,7 +267,6 @@ function BoardPage({ state, boardId, onOpen, onDeleted, canManage }: { state: Wo
     <div className="space-y-4 pb-20">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-xs text-muted-foreground">{board.workspace}</div>
           <h1 className="text-2xl font-semibold tracking-tight">{board.name}</h1>
           {board.description && <p className="text-sm text-muted-foreground">{board.description}</p>}
         </div>
@@ -303,8 +282,8 @@ function BoardPage({ state, boardId, onOpen, onDeleted, canManage }: { state: Wo
           >
             <ClipboardList /> Share form
           </Button>
-          {canManage && <Button variant="outline" size="icon" title="Board settings" onClick={() => setSettingsOpen(true)}><Settings /></Button>}
-          <Button onClick={newItem} title="New item (N)"><Plus /> New item</Button>
+          <Button variant="outline" size="icon" title="Board settings" onClick={() => setSettingsOpen(true)}><Settings /></Button>
+          <Button onClick={onNew} title="New item (N)"><Plus /> New item</Button>
         </div>
       </div>
 
@@ -336,13 +315,13 @@ function BoardPage({ state, boardId, onOpen, onDeleted, canManage }: { state: Wo
         )}
       </div>
 
-      {view === "table" && <TableView board={board} items={items} allItems={state.items} onOpen={onOpen} sort={sort} onSort={onSort} selected={selected} onSelect={onSelect} canManage={canManage} />}
+      {view === "table" && <TableView board={board} items={items} allItems={state.items} onOpen={onOpen} sort={sort} onSort={onSort} selected={selected} onSelect={onSelect} />}
       {view === "kanban" && <KanbanView board={board} items={items} allItems={state.items} onOpen={onOpen} />}
       {view === "calendar" && <CalendarView board={board} items={items} onOpen={onOpen} />}
       {view === "timeline" && <TimelineView board={board} items={items} allItems={state.items} onOpen={onOpen} />}
 
       {sel.length > 0 && <BulkBar board={board} ids={sel} onClear={() => setSelected(new Set())} />}
-      {canManage && <BoardSettingsDialog board={board} open={settingsOpen} onClose={() => setSettingsOpen(false)} onDeleted={onDeleted} />}
+      <BoardSettingsDialog board={board} open={settingsOpen} onClose={() => setSettingsOpen(false)} onDeleted={onDeleted} />
     </div>
   );
 }
@@ -501,149 +480,6 @@ function ItemList({ items, boardOf, onOpen, empty }: { items: Item[]; boardOf: (
         </li>
       ))}
     </ul>
-  );
-}
-
-// ── My work ──────────────────────────────────────────────────
-
-function MyWork({ state, onOpen }: { state: WorkState; onOpen: (id: string) => void }) {
-  const today = format(new Date(), "yyyy-MM-dd");
-  const week = format(addDays(new Date(), 7), "yyyy-MM-dd");
-  const meId = state.me.id;
-  const mine = state.items.filter((i) => i.assignees.includes(meId) && i.status !== DONE);
-  const subs = state.items.flatMap((i) => i.subtasks.filter((s) => s.assignee === meId && !s.done).map((s) => ({ s, parent: i })));
-  const buckets: { label: string; items: Item[] }[] = [
-    { label: "Overdue", items: mine.filter((i) => i.due && i.due < today) },
-    { label: "Today", items: mine.filter((i) => i.due === today) },
-    { label: "Next 7 days", items: mine.filter((i) => i.due && i.due > today && i.due <= week) },
-    { label: "Later", items: mine.filter((i) => i.due && i.due > week) },
-    { label: "No date", items: mine.filter((i) => !i.due) },
-  ];
-  const boardOf = (id: string) => state.boards.find((b) => b.id === id);
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">My work</h1>
-        <p className="text-sm text-muted-foreground">{mine.length} open items assigned to you across all boards.</p>
-      </div>
-      {buckets.map((b) => (
-        <section key={b.label}>
-          <h2 className={`mb-2 text-sm font-semibold ${b.label === "Overdue" && b.items.length ? "text-red-600" : ""}`}>
-            {b.label} <span className="font-normal text-muted-foreground">({b.items.length})</span>
-          </h2>
-          {b.items.length > 0 && (
-            <div className="divide-y rounded-xl border bg-card">
-              {b.items.map((i) => (
-                <button key={i.id} onClick={() => onOpen(i.id)} className="flex w-full flex-wrap items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-muted/40">
-                  <span className="min-w-0 flex-1 truncate font-medium">{i.name}</span>
-                  <span className="text-xs text-muted-foreground">{boardOf(i.boardId)?.name}</span>
-                  <PriorityPill priority={i.priority} />
-                  <StatusPill board={boardOf(i.boardId)} status={i.status} />
-                  <span className="w-14 text-right text-xs text-muted-foreground">{i.due ? format(parseISO(i.due), "MMM d") : "—"}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-      ))}
-      {subs.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-sm font-semibold">Subitems assigned to me <span className="font-normal text-muted-foreground">({subs.length})</span></h2>
-          <div className="divide-y rounded-xl border bg-card">
-            {subs.map(({ s, parent }) => (
-              <button key={s.id} onClick={() => onOpen(parent.id)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-muted/40">
-                <span className="flex-1 truncate">{s.title}</span>
-                <span className="truncate text-xs text-muted-foreground">in {parent.name}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
-
-// ── Inbox ────────────────────────────────────────────────────
-
-function InboxPage({ state, onOpen }: { state: WorkState; onOpen: (id: string) => void }) {
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
-          <p className="text-sm text-muted-foreground">Assignments, @mentions, form submissions and automation alerts.</p>
-        </div>
-        <Button variant="outline" onClick={markRead}>Mark all as read</Button>
-      </div>
-      <div className="divide-y rounded-xl border bg-card">
-        {state.notifications.length === 0 && <p className="p-8 text-center text-sm text-muted-foreground">You&apos;re all caught up.</p>}
-        {state.notifications.map((n) => (
-          <button
-            key={n.id}
-            onClick={() => n.itemId && state.items.some((i) => i.id === n.itemId) && onOpen(n.itemId)}
-            className={`flex w-full items-start gap-3 px-4 py-3 text-left text-sm hover:bg-muted/40 ${n.read ? "" : "bg-[#b48c3c]/5"}`}
-          >
-            <Bell className={`mt-0.5 size-4 shrink-0 ${n.read ? "text-muted-foreground" : "text-[#b48c3c]"}`} />
-            <div className="flex-1">
-              <div className={n.read ? "" : "font-medium"}>{n.text}</div>
-              <div className="text-xs text-muted-foreground">
-                {isToday(new Date(n.at)) ? formatDistanceToNow(new Date(n.at), { addSuffix: true }) : format(new Date(n.at), "MMM d, h:mm a")}
-              </div>
-            </div>
-            {!n.read && <span className="mt-1.5 size-2 rounded-full bg-[#b48c3c]" />}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Automations ──────────────────────────────────────────────
-
-function Automations({ state, canManage }: { state: WorkState; canManage: boolean }) {
-  const [builderOpen, setBuilderOpen] = useState(false);
-  const describe = useDescribeAutomation();
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Automations</h1>
-          <p className="text-sm text-muted-foreground">Rules that run automatically when things change.{canManage ? "" : " Only admins can change them."}</p>
-        </div>
-        {canManage && <Button onClick={() => setBuilderOpen(true)}><Plus /> New automation</Button>}
-      </div>
-      <div className="space-y-2">
-        {state.automations.length === 0 && <p className="rounded-xl border p-8 text-center text-sm text-muted-foreground">No automations yet.</p>}
-        {state.automations.map((a) => {
-          const d = describe(a, state.boards);
-          return (
-            <div key={a.id} className="flex items-center gap-4 rounded-xl border bg-card px-4 py-3">
-              <Zap className={`size-5 shrink-0 ${a.enabled ? "text-[#b48c3c]" : "text-muted-foreground"}`} />
-              <div className="flex-1 text-sm">
-                <span className="font-medium">{d.when}</span>, <span>{d.then}</span>
-                <div className="text-xs text-muted-foreground">{d.scope}</div>
-              </div>
-              <button
-                role="switch"
-                aria-checked={a.enabled}
-                disabled={!canManage}
-                onClick={() => toggleAutomation(a.id)}
-                className={`relative h-5 w-9 shrink-0 rounded-full transition disabled:opacity-60 ${a.enabled ? "bg-primary dark:bg-[#b48c3c]" : "bg-muted-foreground/30"}`}
-              >
-                <span className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-all ${a.enabled ? "left-4.5" : "left-0.5"}`} />
-              </button>
-              {canManage && (
-                <Button variant="ghost" size="icon-sm" title="Delete automation" onClick={() => confirm("Delete this automation?") && deleteAutomation(a.id)}>
-                  <Trash2 />
-                </Button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {canManage && <AutomationBuilder state={state} open={builderOpen} onClose={() => setBuilderOpen(false)} />}
-    </div>
   );
 }
 
