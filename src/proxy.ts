@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Cheap gate: redirect to /login when there is no session cookie.
 // The cookie signature is verified server-side in getSessionUser().
-const PUBLIC = ["/login", "/form/"];
+// /api/inngest is called by Inngest and verifies its own request signature.
+const PUBLIC = ["/login", "/form/", "/api/inngest"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

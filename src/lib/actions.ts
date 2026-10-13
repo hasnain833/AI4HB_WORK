@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { createSession, destroySession, requireUser } from "./auth";
+import { inngest, URGENT } from "./inngest";
 import {
   TEMPLATES,
   prioMeta,
@@ -184,6 +185,12 @@ async function writeEffects(fx: Effects, extraActivity: string[] = []) {
   ]);
 }
 
+/** Slack alert (via Inngest) when an item ends up High/Critical and wasn't before. Never blocks the edit. */
+async function alertIfUrgent(fx: Effects, prev: Priority | null, actor: Person) {
+  if (!URGENT.includes(fx.fields.priority) || (prev && URGENT.includes(prev))) return;
+  await inngest.send({ name: "work/item.urgent", data: { itemId: fx.fields.id, actor: actor.name } }).catch((e) => console.error("Slack alert not queued:", e));
+}
+
 // ── Items ────────────────────────────────────────────────────
 
 async function nextPosition(groupId: string) {
@@ -202,6 +209,7 @@ async function insertItem(boardId: string, groupId: string, name: string, actor:
   if (row.assigneeIds.length) events.push({ type: "assigned", added: row.assigneeIds });
   const fx = await runAutomations(row, events, actor);
   await writeEffects(fx, [firstActivity]);
+  await alertIfUrgent(fx, null, actor);
   return row.id;
 }
 
@@ -246,6 +254,7 @@ export async function updateItems(ids: string[], patch: ItemPatch, activityText?
     }
     const fx = await runAutomations(row, events, me);
     await writeEffects(fx, activityText ? [`${me.name} ${activityText}`] : []);
+    await alertIfUrgent(fx, p.priority, me);
   }
 }
 
