@@ -17,12 +17,7 @@ Stack: Next.js 16 (App Router, server actions) · Prisma 7 · PostgreSQL (Supaba
    ```
 3. Run it: `npm run dev` → http://localhost:3001
 
-## Accounts
 
-| Email | Password |
-|---|---|
-| `steven@gmail.com` | `password123` |
-| `ghulam@gmail.com` | `password123` |
 
 There are no roles: every account can do everything. Accounts live in the database; there is no sign-up or seed script.
 
