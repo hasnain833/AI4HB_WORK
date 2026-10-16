@@ -63,6 +63,7 @@ function toItem(i: DbItem): Item {
     status: i.status,
     priority: i.priority,
     assignees: i.assigneeIds,
+    createdBy: i.createdById ?? undefined,
     start: i.start ?? undefined,
     due: i.due ?? undefined,
     description: i.description,
@@ -198,7 +199,7 @@ async function nextPosition(groupId: string) {
   return (last._max.position ?? 0) + 1;
 }
 
-type ItemExtra = Partial<Pick<Prisma.ItemUncheckedCreateInput, "description" | "priority" | "values" | "assigneeIds" | "status" | "start" | "due">>;
+type ItemExtra = Partial<Pick<Prisma.ItemUncheckedCreateInput, "description" | "priority" | "values" | "assigneeIds" | "status" | "start" | "due" | "createdById">>;
 
 async function insertItem(boardId: string, groupId: string, name: string, actor: Person, extra: ItemExtra, firstActivity: string) {
   const row = await prisma.item.create({
@@ -217,6 +218,7 @@ export async function createItem(boardId: string, groupId: string, name: string,
   const me = await requireUser();
   // Pick fields explicitly so the client can't write anything else.
   const extra: ItemExtra = {
+    createdById: me.id,
     status: f.status,
     priority: f.priority,
     assigneeIds: f.assignees,
@@ -288,6 +290,7 @@ export async function duplicateItem(id: string) {
       status: src.status,
       priority: src.priority,
       assigneeIds: src.assigneeIds,
+      createdById: me.id,
       start: src.start,
       due: src.due,
       description: src.description,

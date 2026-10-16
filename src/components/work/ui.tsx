@@ -62,8 +62,9 @@ export function PeoplePicker({ value, onChange, single }: { value: string[]; onC
 }
 
 /** Editor for one custom-column cell, by column type. */
-export function CellEditor({ col, value: v, onChange }: { col: Column; value: CellValue | undefined; onChange: (v: CellValue | undefined) => void }) {
-  const base = "h-8 w-full rounded-md bg-transparent px-2 text-sm outline-none hover:bg-muted focus:bg-background focus:ring-2 focus:ring-ring/40";
+/** `boxed` gives inputs a visible border, for forms; table cells stay borderless. */
+export function CellEditor({ col, value: v, onChange, boxed }: { col: Column; value: CellValue | undefined; onChange: (v: CellValue | undefined) => void; boxed?: boolean }) {
+  const base = `h-8 w-full rounded-md bg-transparent px-2 text-sm outline-none hover:bg-muted focus:bg-background focus:ring-2 focus:ring-ring/40 ${boxed ? "border border-input placeholder:text-muted-foreground" : ""}`;
   switch (col.type) {
     case "checkbox":
       return (
@@ -112,6 +113,6 @@ export function CellEditor({ col, value: v, onChange }: { col: Column; value: Ce
         </div>
       );
     default:
-      return <input className={base} defaultValue={String(v ?? "")} key={`${col.id}-${v}`} onBlur={(e) => onChange(e.target.value.trim())} />;
+      return <input className={base} placeholder={boxed ? `Add ${col.name.toLowerCase()}…` : undefined} defaultValue={String(v ?? "")} key={`${col.id}-${v}`} onBlur={(e) => onChange(e.target.value.trim())} />;
   }
 }

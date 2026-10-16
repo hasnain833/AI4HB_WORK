@@ -54,13 +54,13 @@ import {
   updateSubtask,
   usePeople,
 } from "./store";
-import { CellEditor, PeoplePicker, PriorityPill, StatusSelect, fieldSelect } from "./ui";
+import { CellEditor, PriorityPill, StatusSelect, fieldSelect } from "./ui";
 import { confirmDialog } from "./dialogs";
 
 const todayStr = () => format(new Date(), "yyyy-MM-dd");
 const isOverdue = (i: Item) => !!i.due && i.status !== DONE && i.due < todayStr();
 
-export type SortKey = "name" | "status" | "priority" | "due" | "assignee";
+export type SortKey = "name" | "status" | "priority" | "due" | "creator";
 export type Sort = { key: SortKey; dir: 1 | -1 } | null;
 
 // ── Table (Monday-style groups) ──────────────────────────────
@@ -163,7 +163,7 @@ export function TableView({
                         <input type="checkbox" className="accent-[#0e1623] dark:accent-[#d4a853]" checked={allSel} onChange={(e) => onSelect(rows.map((r) => r.id), e.target.checked)} />
                       </th>
                       <SortHead k="name" label="Item" className="min-w-72" />
-                      <SortHead k="assignee" label="Assigned to" className="w-40" />
+                      <SortHead k="creator" label="Created by" className="w-40" />
                       <SortHead k="status" label="Status" className="w-36 text-center" />
                       <SortHead k="priority" label="Priority" className="w-28 text-center" />
                       <th className="w-32 px-2 py-2 font-medium">Timeline</th>
@@ -242,7 +242,7 @@ export function TableView({
                               </span>
                             </div>
                           </td>
-                          <td className="px-2 py-1"><PeoplePicker value={i.assignees} onChange={(a) => updateItem(i.id, { assignees: a }, "changed assignees")} /></td>
+                          <td className="truncate px-2 py-1">{i.createdBy ? nameOf(i.createdBy) : <span className="text-muted-foreground">—</span>}</td>
                           <td className="px-2 py-1"><StatusSelect board={board} value={i.status} onChange={(v) => updateItem(i.id, { status: v }, `changed status to ${statusOf(board, v).label}`)} /></td>
                           <td className="px-2 py-1">
                             <select
@@ -352,7 +352,7 @@ function GroupFooter({ board, items }: { board: Board; items: Item[] }) {
 // ── Kanban ───────────────────────────────────────────────────
 
 export function KanbanView({ board, items, allItems, onOpen }: { board: Board; items: Item[]; allItems: Item[]; onOpen: (id: string) => void }) {
-  const { names } = usePeople();
+  const { nameOf } = usePeople();
   const [over, setOver] = useState<string | null>(null);
   return (
     <div className="flex gap-3 overflow-x-auto pb-3">
@@ -399,7 +399,7 @@ export function KanbanView({ board, items, allItems, onOpen }: { board: Board; i
                     )}
                     {i.updates.length > 0 && <span className="flex items-center gap-0.5"><MessageSquare className="size-3.5" />{i.updates.length}</span>}
                   </div>
-                  <div className="mt-2 truncate text-xs text-muted-foreground">{names(i.assignees) || "Unassigned"}</div>
+                  <div className="mt-2 truncate text-xs text-muted-foreground">{i.createdBy ? `Created by ${nameOf(i.createdBy)}` : ""}</div>
                 </div>
               ))}
             </div>

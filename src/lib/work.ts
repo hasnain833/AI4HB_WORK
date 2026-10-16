@@ -32,6 +32,7 @@ export interface Item {
   status: string; // StatusDef.key, "DONE" means complete
   priority: Priority;
   assignees: string[]; // user ids
+  createdBy?: string; // user id, unset for public-form submissions
   start?: string; // yyyy-MM-dd
   due?: string; // yyyy-MM-dd
   description: string;

@@ -121,7 +121,7 @@ export function WorkApp({ initial }: { initial: WorkState }) {
         </main>
 
         {open && <ItemDrawer item={open} state={state} onClose={() => setOpenId(null)} onOpen={setOpenId} />}
-        {newBoard && <NewItemDrawer key={newBoard.id} board={newBoard} onClose={() => setNewFor(null)} onCreated={() => setNewFor(null)} />}
+        {newBoard && <NewItemDrawer key={newBoard.id} board={newBoard} me={state.me} onClose={() => setNewFor(null)} onCreated={() => setNewFor(null)} />}
         <SearchDialog state={state} open={searchOpen} onClose={() => setSearchOpen(false)} onOpenItem={setOpenId} onOpenBoard={(id) => go({ kind: "board", id })} />
         <NewBoardDialog
           open={newBoardOpen}
@@ -237,7 +237,7 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
         : sort.key === "status" ? idx(i.status)
           : sort.key === "priority" ? PRIO_RANK[i.priority]
             : sort.key === "due" ? (i.due ?? "9999")
-              : i.assignees[0] ? nameOf(i.assignees[0]) : "~";
+              : i.createdBy ? nameOf(i.createdBy) : "~";
     return [...list].sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * sort.dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.items, boardId, q, person, status, sort, board.statuses]);

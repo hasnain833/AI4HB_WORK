@@ -13,7 +13,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DONE, PRIORITIES, TONES, isBlocked, prioMeta, statusOf, type Board, type Item, type NewItemFields, type Priority, type WorkState } from "@/lib/work";
+import { DONE, PRIORITIES, TONES, isBlocked, prioMeta, statusOf, type Board, type Item, type NewItemFields, type Person, type Priority, type WorkState } from "@/lib/work";
 import {
   addFile,
   addSubtask,
@@ -120,8 +120,8 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
                 {PRIORITIES.map((p) => <option key={p.key} value={p.key} className="bg-background text-foreground">{p.label}</option>)}
               </select>
             </Field>
-            <Field label="Assigned to">
-              <PeoplePicker value={item.assignees} onChange={(a) => updateItem(item.id, { assignees: a }, "changed assignees")} />
+            <Field label="Created by">
+              <div className="flex h-8 items-center truncate">{people.find((p) => p.id === item.createdBy)?.name ?? "—"}</div>
             </Field>
             <Field label="Start">
               <Input type="date" className="h-8" value={item.start ?? ""} onChange={(e) => updateItem(item.id, { start: e.target.value }, "changed the start date")} />
@@ -139,7 +139,7 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
             </Field>
             {board?.columns.map((c) => (
               <Field key={c.id} label={c.name}>
-                <CellEditor col={c} value={item.values[c.id]} onChange={(v) => setCell(item.id, c.id, v)} />
+                <CellEditor boxed col={c} value={item.values[c.id]} onChange={(v) => setCell(item.id, c.id, v)} />
               </Field>
             ))}
           </div>
@@ -341,9 +341,11 @@ function storeDraft(boardId: string, d: Draft | null) {
   } catch {}
 }
 
-export function NewItemDrawer({ board, onClose, onCreated }: { board: Board; onClose: () => void; onCreated: (id: string) => void }) {
+export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board; me: Person; onClose: () => void; onCreated: (id: string) => void }) {
   const [d, setD] = useState(() => loadDraft(board));
   const [busy, setBusy] = useState(false);
+  const [tried, setTried] = useState(false); // show required-field errors only after a save attempt
+  const nameMissing = tried && !d.name.trim();
   const nameRef = useRef<HTMLInputElement>(null);
   const set = (patch: Partial<Draft>) =>
     setD((prev) => {
@@ -353,7 +355,11 @@ export function NewItemDrawer({ board, onClose, onCreated }: { board: Board; onC
     });
 
   const save = async () => {
-    if (!d.name.trim()) return nameRef.current?.focus();
+    setTried(true);
+    if (!d.name.trim()) {
+      toast.error("Item name is required");
+      return nameRef.current?.focus();
+    }
     setBusy(true);
     const { groupId, name, ...fields } = d;
     const id = await createItem(board.id, groupId, name, fields);
@@ -385,12 +391,15 @@ export function NewItemDrawer({ board, onClose, onCreated }: { board: Board; onC
           <input
             ref={nameRef}
             autoFocus
-            className="mt-1 w-full bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground/60"
+            className={`mt-1 w-full rounded-md bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground/60 ${nameMissing ? "-mx-2 px-2 ring-2 ring-red-500 placeholder:text-red-400" : ""}`}
             placeholder="Item name"
+            aria-invalid={nameMissing}
+            aria-describedby={nameMissing ? "new-item-name-error" : undefined}
             value={d.name}
             onChange={(e) => set({ name: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && save()}
           />
+          {nameMissing && <p id="new-item-name-error" className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">Item name is required.</p>}
         </header>
 
         <div className="flex-1 overflow-y-auto">
@@ -408,8 +417,8 @@ export function NewItemDrawer({ board, onClose, onCreated }: { board: Board; onC
                 {PRIORITIES.map((p) => <option key={p.key} value={p.key} className="bg-background text-foreground">{p.label}</option>)}
               </select>
             </Field>
-            <Field label="Assigned to">
-              <PeoplePicker value={d.assignees} onChange={(a) => set({ assignees: a })} />
+            <Field label="Created by">
+              <div className="flex h-8 items-center truncate">{me.name}</div>
             </Field>
             <Field label="Due">
               <Input type="date" className="h-8" value={d.due} onChange={(e) => set({ due: e.target.value })} />
@@ -417,6 +426,7 @@ export function NewItemDrawer({ board, onClose, onCreated }: { board: Board; onC
             {board.columns.map((c) => (
               <Field key={c.id} label={c.name}>
                 <CellEditor
+                  boxed
                   col={c}
                   value={d.values[c.id]}
                   onChange={(v) => {
@@ -439,7 +449,7 @@ export function NewItemDrawer({ board, onClose, onCreated }: { board: Board; onC
         <footer className="flex items-center gap-2 border-t px-6 py-3">
           <span className="text-xs text-muted-foreground">Draft is kept if you close this panel.</span>
           <Button variant="ghost" className="ml-auto" onClick={discard}>Discard</Button>
-          <Button onClick={save} disabled={busy || !d.name.trim()}>{busy ? "Saving…" : "Save item"}</Button>
+          <Button onClick={save} disabled={busy}>{busy ? "Saving…" : "Save item"}</Button>
         </footer>
       </aside>
     </div>

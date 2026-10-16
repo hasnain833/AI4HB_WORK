@@ -59,7 +59,8 @@ model Item {
   status      String     @default("NOT_STARTED")
   priority    Priority   @default(MEDIUM)
   assigneeIds String[]   @default([])
-  start       String?
+  createdById String? // null for public-form submissions
+  start      String?
   due         String? 
   description String     @default("")
   values      Json       @default("{}")
