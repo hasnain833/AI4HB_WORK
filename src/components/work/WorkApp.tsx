@@ -402,7 +402,7 @@ function Dashboard({ state, onOpen }: { state: WorkState; onOpen: (id: string) =
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {tiles.map((t) => (
-          <div key={t.label} className="rounded-xl border bg-card p-4">
+          <div key={t.label} className="rounded-xl border bg-card ring-1 ring-foreground/10 p-4 shadow-xs">
             <div className="text-xs text-muted-foreground">{t.label}</div>
             <div className={`mt-1 text-3xl font-semibold ${t.alert ? "text-red-600" : ""}`}>{t.value}</div>
           </div>
@@ -460,7 +460,7 @@ function Dashboard({ state, onOpen }: { state: WorkState; onOpen: (id: string) =
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border bg-card p-4">
+    <section className="rounded-xl border bg-card ring-1 ring-foreground/10 p-4 shadow-xs">
       <h2 className="mb-3 text-sm font-semibold">{title}</h2>
       {children}
     </section>
@@ -501,7 +501,7 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
     ["?", "Show / hide this list"],
   ];
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-72 rounded-xl border bg-card p-4 shadow-2xl">
+    <div className="fixed bottom-4 right-4 z-50 w-72 rounded-xl border bg-card ring-1 ring-foreground/10 p-4 shadow-2xl">
       <div className="mb-2 flex items-center">
         <span className="flex items-center gap-2 text-sm font-semibold"><Keyboard className="size-4" /> Keyboard shortcuts</span>
         <button className="ml-auto text-muted-foreground hover:text-foreground" onClick={onClose}><X className="size-4" /></button>

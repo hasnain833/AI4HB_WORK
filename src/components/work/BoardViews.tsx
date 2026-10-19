@@ -184,7 +184,7 @@ export function TableView({
             </div>
 
             {open && (
-              <div className="overflow-x-auto rounded-lg border bg-card">
+              <div className="overflow-x-auto rounded-lg border bg-card ring-1 ring-foreground/10 shadow-xs">
                 <table className="w-full min-w-225 text-sm">
                   <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
                     <tr className="border-b">
@@ -411,7 +411,7 @@ export function KanbanView({ board, items, allItems, onOpen }: { board: Board; i
                   draggable
                   onDragStart={(e) => e.dataTransfer.setData("text/plain", i.id)}
                   onClick={() => onOpen(i.id)}
-                  className="cursor-grab rounded-lg border bg-card p-3 shadow-sm transition hover:shadow-md active:cursor-grabbing"
+                  className="cursor-grab rounded-lg border bg-card ring-1 ring-foreground/10 p-3 shadow-sm transition hover:shadow-md active:cursor-grabbing"
                 >
                   <div className="flex gap-1.5 text-sm font-medium leading-snug">
                     {isBlocked(i, allItems) && <Lock className="mt-0.5 size-3.5 shrink-0 text-red-500" />}
@@ -444,7 +444,7 @@ export function CalendarView({ board, items, onOpen }: { board: Board; items: It
   const [dragId, setDragId] = useState<string | null>(null);
   const days = eachDayOfInterval({ start: startOfWeek(month), end: endOfWeek(endOfMonth(month)) });
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-xl border bg-card ring-1 ring-foreground/10 shadow-xs">
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
         <Button variant="ghost" size="icon-sm" onClick={() => setMonth((m) => addMonths(m, -1))}><ChevronLeft /></Button>
         <span className="w-36 text-center font-semibold">{format(month, "MMMM yyyy")}</span>

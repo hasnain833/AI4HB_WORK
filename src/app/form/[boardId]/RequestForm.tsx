@@ -38,7 +38,7 @@ export function RequestForm({ board }: { board: { id: string; name: string; desc
 
   if (done) {
     return (
-      <div className="rounded-2xl border bg-card p-10 text-center shadow-sm">
+      <div className="rounded-2xl border bg-card ring-1 ring-foreground/10 p-10 text-center shadow-sm">
         <CheckCircle2 className="mx-auto size-14 text-emerald-600" />
         <h1 className="mt-4 text-2xl font-semibold">Thanks, we&apos;ve got it!</h1>
         <p className="mt-2 text-muted-foreground">Your request was added to <b>{board.name}</b> and the team has been notified.</p>
@@ -51,7 +51,7 @@ export function RequestForm({ board }: { board: { id: string; name: string; desc
     <>
       <h1 className="text-3xl font-semibold tracking-tight">{board.name}</h1>
       <p className="mt-2 text-muted-foreground">{board.description || "Submit a request to our team."}</p>
-      <form onSubmit={submit} className="mt-8 space-y-5 rounded-2xl border bg-card p-6 shadow-sm">
+      <form onSubmit={submit} className="mt-8 space-y-5 rounded-2xl border bg-card ring-1 ring-foreground/10 p-6 shadow-sm">
         <div className="space-y-1.5">
           <Label htmlFor="f-name">Title</Label>
           <Input id="f-name" required maxLength={200} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />

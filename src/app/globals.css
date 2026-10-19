@@ -20,7 +20,7 @@
   --text-muted: #6b7280;
 
   /* Light theme – base */
-  --background: var(--cream);
+  --background: var(--white);
   --foreground: var(--navy);
   --card: var(--white);
   --card-foreground: var(--navy);
@@ -30,13 +30,13 @@
   --primary-foreground: var(--cream);
   --secondary: var(--gold);
   --secondary-foreground: var(--navy);
-  --muted: var(--cream2);
+  --muted: #f4f5f7;
   --muted-foreground: var(--text-muted);
   --accent: var(--teal);
   --accent-foreground: var(--white);
   --destructive: #ef4444;
-  --border: var(--cream2);
-  --input: var(--cream2);
+  --border: #e5e7eb;
+  --input: #e5e7eb;
   --ring: var(--gold-lt);
   --radius: 0.625rem;
 
