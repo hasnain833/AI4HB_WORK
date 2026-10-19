@@ -40,7 +40,7 @@ export async function getSessionUser(): Promise<Person | null> {
   const given = Buffer.from(mac);
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
   if (Number(exp) < Date.now()) return null;
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true } });
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true, email: true, role: true } });
   return u;
 }
 

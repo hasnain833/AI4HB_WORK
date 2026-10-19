@@ -18,23 +18,20 @@ model User {
   email         String         @unique
   name          String
   passwordHash  String
-  createdAt     DateTime       @default(now())
+  role          String         @default("MEMBER")
+  createdAt    DateTime       @default(now())
   updates       Update[]
-  notifications Notification[]
 }
 
 model Board {
   id          String       @id @default(cuid())
   name        String
   description String       @default("")
-  workspace   String       @default("Product")
   statuses    Json
   columns     Json         @default("[]")
-  position    Int          @default(0)
   createdAt   DateTime     @default(now())
   groups      Group[]
   items       Item[]
-  automations Automation[]
 }
 
 model Group {
@@ -59,8 +56,7 @@ model Item {
   status      String     @default("NOT_STARTED")
   priority    Priority   @default(MEDIUM)
   assigneeIds String[]   @default([])
-  createdById String? // null for public-form submissions
-  start      String?
+  createdById String? 
   due         String? 
   description String     @default("")
   values      Json       @default("{}")
@@ -120,26 +116,4 @@ model Activity {
   createdAt DateTime @default(now())
 
   @@index([itemId])
-}
-
-model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  text      String
-  itemId    String?
-  read      Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([userId, read])
-}
-
-model Automation {
-  id        String   @id @default(cuid())
-  boardId   String?
-  board     Board?   @relation(fields: [boardId], references: [id], onDelete: Cascade)
-  trigger   Json
-  action    Json
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
 }

@@ -7,7 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { TONES, prioMeta, statusOf, type Board, type CellValue, type Column, type Priority } from "@/lib/work";
+import { TONES, prioMeta, statusOf, type Board, type CellValue, type Column, type Person, type Priority } from "@/lib/work";
 import { usePeople } from "./store";
 
 export const fieldSelect =
@@ -36,12 +36,13 @@ export function StatusSelect({ board, value, onChange }: { board?: Board; value:
 }
 
 /** Picks user ids; shows names. */
-export function PeoplePicker({ value, onChange, single }: { value: string[]; onChange: (v: string[]) => void; single?: boolean }) {
-  const { people, names } = usePeople();
+export function PeoplePicker({ value, onChange, single, options, boxed }: { value: string[]; onChange: (v: string[]) => void; single?: boolean; options?: Person[]; boxed?: boolean }) {
+  const { people: all, names } = usePeople();
+  const people = options ?? all;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex h-8 w-full items-center truncate rounded-md px-2 text-left text-sm hover:bg-muted">
+        <button className={`flex h-8 w-full items-center truncate rounded-md px-2 text-left text-sm hover:bg-muted ${boxed ? "border border-input" : ""}`}>
           {value.length ? names(value) : <span className="text-muted-foreground">Unassigned</span>}
         </button>
       </DropdownMenuTrigger>

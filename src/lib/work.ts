@@ -5,7 +5,7 @@ export type Tone = "neutral" | "navy" | "gold" | "green" | "red" | "slate";
 export type ColumnType = "text" | "number" | "dropdown" | "checkbox" | "link" | "rating" | "date";
 export type CellValue = string | number | boolean;
 
-export interface Person { id: string; name: string; email: string }
+export interface Person { id: string; name: string; email: string; role?: string }
 export interface StatusDef { key: string; label: string; tone: Tone }
 export interface Column { id: string; name: string; type: ColumnType; options?: string[] }
 export interface Group { id: string; name: string; color: string }
@@ -13,7 +13,6 @@ export interface Board {
   id: string;
   name: string;
   description: string;
-  workspace: string;
   groups: Group[];
   statuses: StatusDef[];
   columns: Column[];
@@ -33,7 +32,6 @@ export interface Item {
   priority: Priority;
   assignees: string[]; // user ids
   createdBy?: string; // user id, unset for public-form submissions
-  start?: string; // yyyy-MM-dd
   due?: string; // yyyy-MM-dd
   description: string;
   values: Record<string, CellValue>;
@@ -45,17 +43,6 @@ export interface Item {
   createdAt: string;
 }
 
-export interface Notification { id: string; text: string; itemId?: string; at: string; read: boolean }
-
-export type Trigger = { type: "created" } | { type: "status"; to: string } | { type: "assigned" } | { type: "priority"; to: Priority };
-export type Action =
-  | { type: "notify"; value: string } // user id or "__assignees"
-  | { type: "assign"; value: string } // user id
-  | { type: "set_priority"; value: Priority }
-  | { type: "move_group"; value: string }
-  | { type: "set_status"; value: string };
-export interface Automation { id: string; boardId: string; trigger: Trigger; action: Action; enabled: boolean } // boardId "*" = all
-
 export interface WorkState {
   me: Person;
   users: Person[];
@@ -65,7 +52,7 @@ export interface WorkState {
 
 /** Fields of an item the client may patch directly. */
 export type NewItemFields = Partial<Pick<Item, "status" | "priority" | "assignees" | "due" | "description" | "values">>;
-export type ItemPatch = Partial<Pick<Item, "name" | "status" | "priority" | "assignees" | "start" | "due" | "description" | "dependsOn" | "groupId">>;
+export type ItemPatch = Partial<Pick<Item, "name" | "status" | "priority" | "assignees" | "due" | "description" | "dependsOn" | "groupId">>;
 
 // ── Reference data ───────────────────────────────────────────
 
@@ -112,7 +99,11 @@ export const GROUP_COLORS = ["#0e1623", "#b48c3c", "#059669", "#64748b", "#c2410
 export const statusOf = (board: Board | undefined, key: string): StatusDef =>
   board?.statuses.find((s) => s.key === key) ?? { key, label: key, tone: "neutral" };
 export const prioMeta = (p: Priority) => PRIORITIES.find((x) => x.key === p)!;
-export const isBlocked = (item: Item, items: Item[]) =>
+/** Who `me` may assign items to: Sales users only to admins. */
+export const assignableUsers = (me: Person, users: Person[]) => (me.role === "SALES" ? users.filter((u) => u.role === "ADMIN") : users);
+/** New tickets land in the "Backlog" group when the board has one. */
+export const defaultGroup = <G extends { name: string }>(groups: G[]) => groups.find((g) => g.name.trim().toLowerCase() === "backlog") ?? groups[0];
+export const isBlocked =(item: Item, items: Item[]) =>
   item.dependsOn.some((id) => items.find((i) => i.id === id && i.status !== DONE));
 
 // ── Templates ────────────────────────────────────────────────

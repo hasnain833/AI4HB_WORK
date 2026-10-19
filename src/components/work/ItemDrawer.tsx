@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { formatDistanceToNow } from "date-fns";
+import { format, formatDistanceToNow, parseISO } from "date-fns";
+import { imageToDataUrl } from "@/lib/utils";
 import { toast } from "sonner";
 import { Check, Copy, Link2, Lock, Paperclip, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DONE, PRIORITIES, TONES, isBlocked, prioMeta, statusOf, type Board, type Item, type NewItemFields, type Person, type Priority, type WorkState } from "@/lib/work";
+import { DONE, PRIORITIES, TONES, defaultGroup, isBlocked, prioMeta, statusOf, type Board, type Item, type NewItemFields, type Person, type Priority, type WorkState } from "@/lib/work";
 import {
   addFile,
   addSubtask,
@@ -27,14 +28,14 @@ import {
   undo,
   updateItem,
   updateSubtask,
+  useAssignable,
   usePeople,
 } from "./store";
 import { CellEditor, PeoplePicker, StatusPill, StatusSelect, fieldSelect, plainSelect } from "./ui";
 
-const MAX_PREVIEW_BYTES = 700_000; // inline image previews stay small
-
 export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state: WorkState; onClose: () => void; onOpen: (id: string) => void }) {
   const { people } = usePeople();
+  const assignable = useAssignable();
   const [tab, setTab] = useState<"updates" | "subitems" | "files" | "activity">("updates");
   const [update, setUpdate] = useState("");
   const [subtask, setSubtask] = useState("");
@@ -45,10 +46,12 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
   const candidates = state.items.filter((i) => i.boardId === item.boardId && i.id !== item.id);
   const others = people.filter((p) => p.id !== state.me.id);
 
+  // Fields save as you edit; "Update" posts the note (if any) and closes the ticket.
   const postUpdate = () => {
-    if (!update.trim()) return;
-    addUpdate(item.id, update.trim());
+    if (update.trim()) addUpdate(item.id, update.trim());
     setUpdate("");
+    toast.success("Ticket updated");
+    onClose();
   };
 
   const addSub = () => {
@@ -57,13 +60,7 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
     setSubtask("");
   };
 
-  const attach = (f: File) => {
-    if (f.type.startsWith("image/") && f.size <= MAX_PREVIEW_BYTES) {
-      const r = new FileReader();
-      r.onload = () => addFile(item.id, f.name, String(r.result));
-      r.readAsDataURL(f);
-    } else addFile(item.id, f.name);
-  };
+  const attach = async (f: File) => addFile(item.id, f.name, await imageToDataUrl(f).catch(() => undefined));
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -120,11 +117,28 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
                 {PRIORITIES.map((p) => <option key={p.key} value={p.key} className="bg-background text-foreground">{p.label}</option>)}
               </select>
             </Field>
+            <Field label="Assigned to">
+              <PeoplePicker
+                boxed
+                options={assignable}
+                value={item.assignees}
+                onChange={(a) => updateItem(item.id, { assignees: a }, a.length ? `assigned ${people.filter((p) => a.includes(p.id)).map((p) => p.name).join(", ")}` : "unassigned the item")}
+              />
+            </Field>
+            <Field label="Group">
+              <select
+                className={`${plainSelect} w-full`}
+                value={item.groupId}
+                onChange={(e) => updateItem(item.id, { groupId: e.target.value }, `moved to ${board?.groups.find((g) => g.id === e.target.value)?.name}`)}
+              >
+                {board?.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </Field>
             <Field label="Created by">
               <div className="flex h-8 items-center truncate">{people.find((p) => p.id === item.createdBy)?.name ?? "—"}</div>
             </Field>
-            <Field label="Start">
-              <Input type="date" className="h-8" value={item.start ?? ""} onChange={(e) => updateItem(item.id, { start: e.target.value }, "changed the start date")} />
+            <Field label="Ticket created">
+              <div className="flex h-8 items-center">{format(parseISO(item.createdAt), "MMM d, yyyy")}</div>
             </Field>
             <Field label="Due">
               <Input type="date" className="h-8" value={item.due ?? ""} onChange={(e) => updateItem(item.id, { due: e.target.value }, "changed the due date")} />
@@ -286,7 +300,7 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
                 </div>
                 <label className="flex cursor-pointer flex-col items-center rounded-lg border border-dashed p-6 text-muted-foreground hover:bg-muted">
                   <Paperclip className="mb-1 size-5" />
-                  Click to attach a file (images under 700 KB get a preview)
+                  Click to attach a file (images and screenshots get a preview)
                   <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) attach(f); e.target.value = ""; }} />
                 </label>
               </div>
@@ -316,7 +330,7 @@ type Draft = Required<Omit<NewItemFields, "due">> & { groupId: string; name: str
 const draftKey = (boardId: string) => `aw_new_item_${boardId}`;
 
 function blankDraft(board: Board): Draft {
-  return { groupId: board.groups[0]?.id ?? "", name: "", status: board.statuses[0]?.key ?? "NOT_STARTED", priority: "MEDIUM", assignees: [], due: "", description: "", values: {} };
+  return { groupId: defaultGroup(board.groups)?.id ?? "", name:"", status: board.statuses[0]?.key ?? "NOT_STARTED", priority: "MEDIUM", assignees: [], due: "", description: "", values: {} };
 }
 
 // Drafts live in localStorage per board, so closing the drawer (or reloading) keeps what was typed.
@@ -342,7 +356,15 @@ function storeDraft(boardId: string, d: Draft | null) {
 }
 
 export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board; me: Person; onClose: () => void; onCreated: (id: string) => void }) {
-  const [d, setD] = useState(() => loadDraft(board));
+  const assignable = useAssignable();
+  const [d, setD] = useState(() => {
+    const draft = loadDraft(board);
+    // Sales tickets default to the admins (the server enforces the same rule)
+    if (me.role === "SALES" && !draft.assignees.length) draft.assignees = assignable.map((p) => p.id);
+    return draft;
+  });
+  // Screenshots are kept in memory only (too big for the localStorage draft) and attached after save.
+  const [files, setFiles] = useState<{ name: string; url?: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [tried, setTried] = useState(false); // show required-field errors only after a save attempt
   const nameMissing = tried && !d.name.trim();
@@ -363,6 +385,7 @@ export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board;
     setBusy(true);
     const { groupId, name, ...fields } = d;
     const id = await createItem(board.id, groupId, name, fields);
+    if (id) await Promise.all(files.map((f) => addFile(id, f.name, f.url)));
     setBusy(false);
     if (!id) return;
     storeDraft(board.id, null);
@@ -417,6 +440,9 @@ export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board;
                 {PRIORITIES.map((p) => <option key={p.key} value={p.key} className="bg-background text-foreground">{p.label}</option>)}
               </select>
             </Field>
+            <Field label="Assigned to">
+              <PeoplePicker boxed options={assignable} value={d.assignees} onChange={(a) => set({ assignees: a })} />
+            </Field>
             <Field label="Created by">
               <div className="flex h-8 items-center truncate">{me.name}</div>
             </Field>
@@ -442,7 +468,30 @@ export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board;
 
           <div className="px-6 pt-4">
             <Textarea rows={5} placeholder="Add a description…" value={d.description} onChange={(e) => set({ description: e.target.value })} />
-            <p className="mt-2 text-xs text-muted-foreground">Subitems, files and updates can be added after saving.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {files.map((f, n) => (
+                <span key={n} className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs">
+                  {f.url ? <img src={f.url} alt="" className="size-6 rounded object-cover" /> : <Paperclip className="size-3.5" />}
+                  <span className="max-w-40 truncate">{f.name}</span>
+                  <button title="Remove" onClick={() => setFiles((x) => x.filter((_, i) => i !== n))}><X className="size-3.5" /></button>
+                </span>
+              ))}
+              <label className="flex cursor-pointer items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground hover:bg-muted">
+                <Paperclip className="size-3.5" /> Attach screenshot
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={async (e) => {
+                    const picked = [...(e.target.files ?? [])];
+                    e.target.value = "";
+                    const added = await Promise.all(picked.map(async (f) => ({ name: f.name, url: await imageToDataUrl(f).catch(() => undefined) })));
+                    setFiles((x) => [...x, ...added]);
+                  }}
+                />
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">Subitems and updates can be added after saving.</p>
           </div>
         </div>
 

@@ -1,6 +1,6 @@
 # AI4Home Work
 
-Monday.com-style work management for the AI4Home team: boards, groups, items, custom columns, Table / Kanban / Calendar / Timeline views, subitems, dependencies, @mentions, automations, public request forms and a dashboard.
+Monday.com-style work management for the AI4Home team: boards, groups, items, custom columns, Table / Kanban / Calendar views, subitems, dependencies, public request forms, Slack alerts and a dashboard.
 
 Stack: Next.js 16 (App Router, server actions) · Prisma 7 · PostgreSQL (Supabase) · Tailwind 4. Same design system as the warranty portal.
 
@@ -19,12 +19,12 @@ Stack: Next.js 16 (App Router, server actions) · Prisma 7 · PostgreSQL (Supaba
 
 
 
-There are no roles: every account can do everything. Accounts live in the database; there is no sign-up or seed script.
+Roles (`User.role`): `ADMIN`, `MEMBER` (default), `SALES` (can only assign tickets to admins). Accounts live in the database; there is no sign-up or seed script.
 
 ## Where things live
 
 - `prisma/schema.prisma`: database tables (schema changes go through `npm run db:push`)
-- `src/lib/actions.ts`: the backend (server actions) and the automations engine
+- `src/lib/actions.ts`: the backend (server actions)
 - `src/lib/auth.ts`: login sessions (signed httpOnly cookie)
 - `src/lib/work.ts`: shared types, statuses, templates
 - `src/components/work/`: the UI (`WorkApp.tsx` is the shell, `store.ts` the client cache)
@@ -34,5 +34,5 @@ There are no roles: every account can do everything. Accounts live in the databa
 
 - Teammates' changes appear within ~5 seconds (polling), not instantly.
 - Attachments: images under 700 KB are stored inline in the database; other files store the name only. Move to Supabase Storage for real files.
-- No email notifications yet, only the in-app Inbox.
+- No in-app or email notifications; urgent items and the daily overdue digest go to Slack.
 - Public forms have no rate limiting or captcha.

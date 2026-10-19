@@ -6,7 +6,7 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import * as api from "@/lib/actions";
-import { GROUP_COLORS, COLUMN_TYPES, type Board, type CellValue, type ColumnType, type Group, type Item, type ItemPatch, type NewItemFields, type Person, type WorkState } from "@/lib/work";
+import { GROUP_COLORS, COLUMN_TYPES, assignableUsers, type Board, type CellValue, type ColumnType, type Group, type Item, type ItemPatch, type NewItemFields, type Person, type WorkState } from "@/lib/work";
 
 let state: WorkState | null = null;
 const listeners = new Set<() => void>();
@@ -56,6 +56,11 @@ export function usePeople() {
   const people = useContext(PeopleContext);
   const nameOf = (id?: string) => people.find((p) => p.id === id)?.name ?? "Unknown";
   return { people, nameOf, names: (ids: string[]) => ids.map(nameOf).join(", ") };
+}
+/** People the signed-in user may assign items to (Sales: admins only). */
+export function useAssignable() {
+  const s = useWork();
+  return s ? assignableUsers(s.me, s.users) : [];
 }
 
 // ── Undo (deletes + bulk edits) ──────────────────────────────

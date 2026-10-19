@@ -7,7 +7,6 @@ import { format, parseISO, addDays } from "date-fns";
 import {
   CalendarDays,
   ClipboardList,
-  GanttChart,
   Home,
   KanbanSquare,
   Keyboard,
@@ -36,22 +35,22 @@ import {
   refresh,
   undo,
   updateItems,
+  useAssignable,
   usePeople,
   useWork,
 } from "./store";
-import { CalendarView, KanbanView, TableView, TimelineView, type Sort, type SortKey } from "./BoardViews";
+import { CalendarView, KanbanView, TableView, type GroupBy, type Sort, type SortKey } from "./BoardViews";
 import { ItemDrawer, NewItemDrawer } from "./ItemDrawer";
 import { BoardSettingsDialog, ConfirmHost, NewBoardDialog, SearchDialog } from "./dialogs";
 import { StatusPill, plainSelect } from "./ui";
 
 type Page = { kind: "home" } | { kind: "board"; id: string };
-type View = "table" | "kanban" | "calendar" | "timeline";
+type View = "table" | "kanban" | "calendar";
 
 const VIEWS: { key: View; label: string; icon: typeof Table2 }[] = [
   { key: "table", label: "Table", icon: Table2 },
   { key: "kanban", label: "Kanban", icon: KanbanSquare },
   { key: "calendar", label: "Calendar", icon: CalendarDays },
-  { key: "timeline", label: "Timeline", icon: GanttChart },
 ];
 
 const POLL_MS = 5000; // ponytail: polling for teammates' changes; switch to Supabase Realtime if it needs to be instant
@@ -216,6 +215,7 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
   const [q, setQ] = useState("");
   const [person, setPerson] = useState("");
   const [status, setStatus] = useState("");
+  const [groupBy, setGroupBy] = useState<GroupBy>("group");
   const [sort, setSort] = useState<Sort>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -308,6 +308,13 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
           <option value="">All statuses</option>
           {board.statuses.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
+        {view === "table" && (
+          <select className={plainSelect} value={groupBy} onChange={(e) => setGroupBy(e.target.value)} title="Group by">
+            <option value="group">Group by: Group</option>
+            <option value="assignee">Group by: Assigned to</option>
+            {board.columns.filter((c) => c.type === "dropdown").map((c) => <option key={c.id} value={c.id}>Group by: {c.name}</option>)}
+          </select>
+        )}
         {(q || person || status || sort) && (
           <Button variant="ghost" size="sm" onClick={() => { setQ(""); setPerson(""); setStatus(""); setSort(null); }}>
             <X /> Clear
@@ -315,10 +322,9 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
         )}
       </div>
 
-      {view === "table" && <TableView board={board} items={items} allItems={state.items} onOpen={onOpen} sort={sort} onSort={onSort} selected={selected} onSelect={onSelect} />}
+      {view === "table" && <TableView board={board} groupBy={groupBy} items={items} allItems={state.items} onOpen={onOpen} sort={sort} onSort={onSort} selected={selected} onSelect={onSelect} />}
       {view === "kanban" && <KanbanView board={board} items={items} allItems={state.items} onOpen={onOpen} />}
       {view === "calendar" && <CalendarView board={board} items={items} onOpen={onOpen} />}
-      {view === "timeline" && <TimelineView board={board} items={items} allItems={state.items} onOpen={onOpen} />}
 
       {sel.length > 0 && <BulkBar board={board} ids={sel} onClear={() => setSelected(new Set())} />}
       <BoardSettingsDialog board={board} open={settingsOpen} onClose={() => setSettingsOpen(false)} onDeleted={onDeleted} />
@@ -328,7 +334,8 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
 
 function BulkBar({ board, ids, onClear }: { board: Board; ids: string[]; onClear: () => void }) {
   const { people } = usePeople();
-  const bar = "h-8 rounded-lg bg-white/10 px-2 text-sm text-white outline-none";
+  const assignable = useAssignable();
+  const bar ="h-8 rounded-lg bg-white/10 px-2 text-sm text-white outline-none";
   const undoToast = (msg: string) => toast(msg, { action: { label: "Undo", onClick: () => undo() } });
   return (
     <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl bg-[#0e1623] px-4 py-2.5 text-white shadow-2xl">
@@ -343,7 +350,7 @@ function BulkBar({ board, ids, onClear }: { board: Board; ids: string[]; onClear
       </select>
       <select className={bar} value="" onChange={(e) => { const p = people.find((x) => x.id === e.target.value); updateItems(ids, { assignees: [e.target.value] }, `assigned ${p?.name}`); undoToast(`Assigned ${ids.length} items`); }}>
         <option value="" disabled>Assign to</option>
-        {people.map((p) => <option key={p.id} value={p.id} className="text-foreground">{p.name}</option>)}
+        {assignable.map((p) => <option key={p.id} value={p.id} className="text-foreground">{p.name}</option>)}
       </select>
       <select className={bar} value="" onChange={(e) => { updateItems(ids, { groupId: e.target.value }, "moved to another group"); undoToast(`Moved ${ids.length} items`); }}>
         <option value="" disabled>Move to group</option>

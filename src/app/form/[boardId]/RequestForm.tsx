@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, Send } from "lucide-react";
+import { CheckCircle2, ImagePlus, Send, X } from "lucide-react";
+import { imageToDataUrl } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +17,14 @@ export function RequestForm({ board }: { board: { id: string; name: string; desc
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [f, setF] = useState({ name: "", description: "", priority: "MEDIUM" as Priority, reporter: "", email: "", values: {} as Record<string, string> });
+  const [f, setF] = useState({ name: "", description: "", priority: "MEDIUM" as Priority, reporter: "", email: "", values: {} as Record<string, string>, files: [] as { name: string; url: string }[] });
+
+  const addShots = async (list: FileList | null) => {
+    const picked = await Promise.all([...(list ?? [])].map(async (file) => ({ name: file.name, url: await imageToDataUrl(file).catch(() => undefined) })));
+    const ok = picked.filter((x): x is { name: string; url: string } => !!x.url);
+    if (ok.length < picked.length) setError("Only images (screenshots) can be attached.");
+    setF((x) => ({ ...x, files: [...x.files, ...ok].slice(0, 3) }));
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +42,7 @@ export function RequestForm({ board }: { board: { id: string; name: string; desc
         <CheckCircle2 className="mx-auto size-14 text-emerald-600" />
         <h1 className="mt-4 text-2xl font-semibold">Thanks, we&apos;ve got it!</h1>
         <p className="mt-2 text-muted-foreground">Your request was added to <b>{board.name}</b> and the team has been notified.</p>
-        <Button className="mt-6" onClick={() => { setDone(false); setF((x) => ({ ...x, name: "", description: "" })); }}>Submit another</Button>
+        <Button className="mt-6" onClick={() => { setDone(false); setF((x) => ({ ...x, name: "", description: "", files: [] })); }}>Submit another</Button>
       </div>
     );
   }
@@ -51,6 +59,26 @@ export function RequestForm({ board }: { board: { id: string; name: string; desc
         <div className="space-y-1.5">
           <Label htmlFor="f-desc">Details</Label>
           <Textarea id="f-desc" required rows={5} maxLength={5000} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="f-files">Screenshots (up to 3)</Label>
+          <div className="flex flex-wrap gap-2">
+            {f.files.map((x, n) => (
+              <span key={n} className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={x.url} alt={x.name} className="size-20 rounded-lg border object-cover" />
+                <button type="button" aria-label={`Remove ${x.name}`} className="absolute -right-1.5 -top-1.5 rounded-full bg-background p-0.5 shadow" onClick={() => setF({ ...f, files: f.files.filter((_, i) => i !== n) })}>
+                  <X className="size-3.5" />
+                </button>
+              </span>
+            ))}
+            {f.files.length < 3 && (
+              <label htmlFor="f-files" className="flex size-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-xs text-muted-foreground hover:bg-muted">
+                <ImagePlus className="size-5" /> Add
+              </label>
+            )}
+            <input id="f-files" type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { addShots(e.target.files); e.target.value = ""; }} />
+          </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">

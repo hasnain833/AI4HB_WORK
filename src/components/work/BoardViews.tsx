@@ -2,9 +2,7 @@
 
 import { useState } from "react";
 import {
-  addDays,
   addMonths,
-  differenceInCalendarDays,
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
@@ -62,11 +60,33 @@ const isOverdue = (i: Item) => !!i.due && i.status !== DONE && i.due < todayStr(
 
 export type SortKey = "name" | "status" | "priority" | "due" | "creator";
 export type Sort = { key: SortKey; dir: 1 | -1 } | null;
+/** "group" (the board's real groups), "assignee", or a dropdown column id. */
+export type GroupBy = string;
+
+type Section = { id: string; name: string; color: string; rows: Item[]; real: boolean };
+
+/** Table sections. Only "group" sections are real groups (rename, drag, add item); the rest are read-only views. */
+function sectionsFor(board: Board, items: Item[], groupBy: GroupBy, people: { id: string; name: string }[]): Section[] {
+  const col = board.columns.find((c) => c.id === groupBy && c.type === "dropdown");
+  const color = (n: number) => GROUP_COLORS[n % GROUP_COLORS.length];
+  if (groupBy === "assignee") {
+    // An item with two assignees shows under both.
+    const s = people.map((p, n) => ({ id: p.id, name: p.name, color: color(n), rows: items.filter((i) => i.assignees.includes(p.id)), real: false }));
+    return [...s, { id: "__none", name: "Unassigned", color: color(s.length), rows: items.filter((i) => !i.assignees.length), real: false }];
+  }
+  if (col) {
+    const opts = col.options ?? [];
+    const s = opts.map((o, n) => ({ id: o, name: o, color: color(n), rows: items.filter((i) => i.values[col.id] === o), real: false }));
+    return [...s, { id: "__none", name: `No ${col.name}`, color: color(s.length), rows: items.filter((i) => !opts.includes(String(i.values[col.id] ?? ""))), real: false }];
+  }
+  return board.groups.map((g) => ({ ...g, rows: items.filter((i) => i.groupId === g.id), real: true }));
+}
 
 // ── Table (Monday-style groups) ──────────────────────────────
 
 export function TableView({
   board,
+  groupBy,
   items,
   allItems,
   onOpen,
@@ -76,6 +96,7 @@ export function TableView({
   onSelect,
 }: {
   board: Board;
+  groupBy: GroupBy;
   items: Item[];
   allItems: Item[];
   onOpen: (id: string) => void;
@@ -84,13 +105,20 @@ export function TableView({
   selected: Set<string>;
   onSelect: (ids: string[], on: boolean) => void;
 }) {
-  const { nameOf } = usePeople();
+  const { nameOf, people } = usePeople();
+  const all = sectionsFor(board, items, groupBy, people);
+  const grouped = all[0]?.real ?? true; // real groups: drag, rename, add item
+  const sections = grouped ? all : all.filter((s) => s.rows.length);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [newGroup, setNewGroup] = useState("");
-  const colCount = 7 + board.columns.length;
+  // Hide columns nobody has filled in yet (board-wide, so groups stay aligned). Values can still be set in the item drawer.
+  const boardItems = allItems.filter((i) => i.boardId === board.id);
+  const showDue = boardItems.some((i) => i.due);
+  const cols = board.columns.filter((c) => boardItems.some((i) => i.values[c.id] !== undefined && i.values[c.id] !== "" && i.values[c.id] !== false));
+  const colCount = 5 + (showDue ? 1 : 0) + cols.length;
 
   const SortHead = ({ k, label, className = "" }: { k: SortKey; label: string; className?: string }) => (
     <th className={`px-2 py-2 font-medium ${className}`}>
@@ -110,8 +138,8 @@ export function TableView({
   return (
     <div className="space-y-6">
       {sort && <p className="text-xs text-muted-foreground">Sorted by {sort.key}. Clear the sort to drag rows.</p>}
-      {board.groups.map((g) => {
-        const rows = items.filter((i) => i.groupId === g.id);
+      {sections.map((g) => {
+        const rows = g.rows;
         const open = !collapsed[g.id];
         const allSel = rows.length > 0 && rows.every((r) => selected.has(r.id));
         return (
@@ -123,13 +151,14 @@ export function TableView({
               <input
                 key={g.name}
                 defaultValue={g.name}
-                onBlur={(e) => e.target.value.trim() && e.target.value !== g.name && updateGroup(board.id, g.id, { name: e.target.value.trim() })}
-                className="w-auto bg-transparent text-base font-semibold outline-none focus:underline"
+                readOnly={!grouped}
+                onBlur={(e) => grouped && e.target.value.trim() && e.target.value !== g.name && updateGroup(board.id, g.id, { name: e.target.value.trim() })}
+                className={`w-auto bg-transparent text-base font-semibold outline-none ${grouped ? "focus:underline" : ""}`}
                 style={{ color: g.color }}
                 size={Math.max(g.name.length, 4)}
               />
               <span className="text-xs text-muted-foreground">{rows.length} items</span>
-              <DropdownMenu>
+              {grouped && <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="rounded p-0.5 text-muted-foreground hover:bg-muted"><MoreHorizontal className="size-4" /></button>
                 </DropdownMenuTrigger>
@@ -151,7 +180,7 @@ export function TableView({
                     Delete group
                   </DropdownMenuItem>
                 </DropdownMenuContent>
-              </DropdownMenu>
+              </DropdownMenu>}
             </div>
 
             {open && (
@@ -166,9 +195,8 @@ export function TableView({
                       <SortHead k="creator" label="Created by" className="w-40" />
                       <SortHead k="status" label="Status" className="w-36 text-center" />
                       <SortHead k="priority" label="Priority" className="w-28 text-center" />
-                      <th className="w-32 px-2 py-2 font-medium">Timeline</th>
-                      <SortHead k="due" label="Due" className="w-20" />
-                      {board.columns.map((c) => (
+                      {showDue && <SortHead k="due" label="Due" className="w-20" />}
+                      {cols.map((c) => (
                         <th key={c.id} className="group/col w-36 px-2 py-2 font-medium">
                           <div className="flex items-center gap-1">
                             <input
@@ -210,7 +238,7 @@ export function TableView({
                       return [
                         <tr
                           key={i.id}
-                          draggable={!sort}
+                          draggable={!sort && grouped}
                           onDragStart={(e) => { setDragId(i.id); e.dataTransfer.effectAllowed = "move"; }}
                           onDragEnd={() => { setDragId(null); setDropTarget(null); }}
                           onDragOver={(e) => { if (dragId) { e.preventDefault(); setDropTarget(i.id); } }}
@@ -222,7 +250,7 @@ export function TableView({
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center gap-1.5">
-                              {!sort && <GripVertical className="size-3.5 shrink-0 cursor-grab text-muted-foreground/0 group-hover:text-muted-foreground" />}
+                              {!sort && grouped && <GripVertical className="size-3.5 shrink-0 cursor-grab text-muted-foreground/0 group-hover:text-muted-foreground" />}
                               <button
                                 className={`shrink-0 text-muted-foreground transition ${i.subtasks.length ? "" : "invisible"}`}
                                 onClick={() => setExpanded((x) => ({ ...x, [i.id]: !x[i.id] }))}
@@ -231,7 +259,7 @@ export function TableView({
                                 <ChevronRight className={`size-3.5 transition ${showSubs ? "rotate-90" : ""}`} />
                               </button>
                               {blocked && <span title="Blocked by a dependency"><Lock className="size-3.5 shrink-0 text-red-500" /></span>}
-                              <button onClick={() => onOpen(i.id)} className="truncate text-left font-medium group-hover:underline">{i.name}</button>
+                              <button onClick={() => onOpen(i.id)} className={`truncate text-left font-medium group-hover:underline ${i.status === DONE ? "text-muted-foreground line-through" : ""}`}>{i.name}</button>
                               <span className="ml-auto flex shrink-0 items-center gap-2 pl-2 text-xs text-muted-foreground">
                                 {i.subtasks.length > 0 && (
                                   <span className="flex items-center gap-0.5"><ListChecks className="size-3.5" />{i.subtasks.filter((s) => s.done).length}/{i.subtasks.length}</span>
@@ -253,13 +281,12 @@ export function TableView({
                               {PRIORITIES.map((p) => <option key={p.key} value={p.key} className="bg-background text-foreground">{p.label}</option>)}
                             </select>
                           </td>
-                          <td className="px-2 py-1 text-xs text-muted-foreground">
-                            {i.start && i.due ? `${format(parseISO(i.start), "MMM d")} – ${format(parseISO(i.due), "MMM d")}` : "—"}
-                          </td>
-                          <td className={`px-2 py-1 text-xs ${isOverdue(i) ? "font-semibold text-red-600" : "text-muted-foreground"}`}>
-                            {i.due ? format(parseISO(i.due), "MMM d") : "—"}
-                          </td>
-                          {board.columns.map((c) => <td key={c.id} className="px-1 py-1"><CellEditor col={c} value={i.values[c.id]} onChange={(v) => setCell(i.id, c.id, v)} /></td>)}
+                          {showDue && (
+                            <td className={`px-2 py-1 text-xs ${isOverdue(i) ? "font-semibold text-red-600" : "text-muted-foreground"}`}>
+                              {i.due ? format(parseISO(i.due), "MMM d") : "—"}
+                            </td>
+                          )}
+                          {cols.map((c) => <td key={c.id} className="px-1 py-1"><CellEditor col={c} value={i.values[c.id]} onChange={(v) => setCell(i.id, c.id, v)} /></td>)}
                           <td />
                         </tr>,
                         ...(showSubs
@@ -284,7 +311,7 @@ export function TableView({
                           : []),
                       ];
                     })}
-                    <tr
+                    {grouped && <tr
                       onDragOver={(e) => { if (dragId) { e.preventDefault(); setDropTarget(`end-${g.id}`); } }}
                       onDrop={(e) => { e.preventDefault(); onDrop(g.id); }}
                       className={dropTarget === `end-${g.id}` ? "border-t-2 border-t-[#b48c3c]" : ""}
@@ -302,7 +329,7 @@ export function TableView({
                           }}
                         />
                       </td>
-                    </tr>
+                    </tr>}
                   </tbody>
                 </table>
                 {rows.length > 0 && <GroupFooter board={board} items={rows} />}
@@ -312,7 +339,7 @@ export function TableView({
         );
       })}
 
-      <div className="flex max-w-sm gap-2">
+      {grouped && <div className="flex max-w-sm gap-2">
         <input
           value={newGroup}
           onChange={(e) => setNewGroup(e.target.value)}
@@ -323,7 +350,7 @@ export function TableView({
         <Button variant="outline" onClick={() => { if (newGroup.trim()) addGroup(board, newGroup.trim()); setNewGroup(""); }}>
           <Plus /> Add group
         </Button>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -460,69 +487,6 @@ export function CalendarView({ board, items, onOpen }: { board: Board; items: It
                   </button>
                 ))}
               </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ── Timeline (Gantt) ─────────────────────────────────────────
-
-export function TimelineView({ board, items, allItems, onOpen }: { board: Board; items: Item[]; allItems: Item[]; onOpen: (id: string) => void }) {
-  const { nameOf } = usePeople();
-  const start = addDays(startOfWeek(new Date()), -7);
-  const days = Array.from({ length: 42 }, (_, i) => addDays(start, i));
-  const col = 28; // px per day
-  const todayOffset = differenceInCalendarDays(new Date(), start);
-
-  return (
-    <div className="overflow-x-auto rounded-xl border bg-card">
-      <div style={{ width: 260 + days.length * col }}>
-        <div className="sticky top-0 flex border-b bg-card text-[10px] text-muted-foreground">
-          <div className="w-65 shrink-0 px-3 py-2 text-[11px] font-medium uppercase tracking-wide">Item</div>
-          {days.map((d) => (
-            <div key={d.toISOString()} style={{ width: col }} className={`shrink-0 border-l py-1 text-center ${isToday(d) ? "font-bold text-foreground" : ""}`}>
-              <div>{format(d, "EEEEE")}</div>
-              <div>{format(d, "d")}</div>
-            </div>
-          ))}
-        </div>
-        {board.groups.map((g) => {
-          const rows = items.filter((i) => i.groupId === g.id);
-          if (!rows.length) return null;
-          return (
-            <div key={g.id}>
-              <div className="border-b bg-muted/40 px-3 py-1.5 text-xs font-semibold" style={{ color: g.color }}>{g.name}</div>
-              {rows.map((i) => {
-                const s = i.start ? parseISO(i.start) : i.due ? parseISO(i.due) : null;
-                const e = i.due ? parseISO(i.due) : s;
-                const left = s ? differenceInCalendarDays(s, start) : 0;
-                const width = s && e ? differenceInCalendarDays(e, s) + 1 : 0;
-                const blocked = isBlocked(i, allItems);
-                return (
-                  <div key={i.id} className="relative flex h-9 items-center border-b">
-                    <button onClick={() => onOpen(i.id)} className="flex w-65 shrink-0 items-center gap-1 truncate px-3 text-left text-sm hover:underline">
-                      {blocked && <Lock className="size-3 shrink-0 text-red-500" />}
-                      <span className="truncate">{i.name}</span>
-                    </button>
-                    <div className="relative h-full flex-1">
-                      <div className="absolute inset-y-0 w-px bg-red-500/60" style={{ left: todayOffset * col + col / 2 }} />
-                      {s && left + width > 0 && (
-                        <button
-                          onClick={() => onOpen(i.id)}
-                          title={`${i.name} · ${statusOf(board, i.status).label}${blocked ? " · blocked" : ""}`}
-                          className={`absolute top-1.5 h-6 truncate rounded-full px-2 text-left text-[11px] font-medium ${TONES[statusOf(board, i.status).tone].pill} ${blocked ? "outline-1 outline-dashed outline-red-500" : ""}`}
-                          style={{ left: Math.max(left, 0) * col, width: Math.max(width + Math.min(left, 0), 1) * col }}
-                        >
-                          {i.assignees[0] ? nameOf(i.assignees[0]) : ""}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           );
         })}
