@@ -19,7 +19,7 @@ import {
   type Tone,
   type WorkState,
 } from "@/lib/work";
-import { createBoard, deleteBoard, deleteColumn, updateBoard, updateColumn, usePeople } from "./store";
+import { createBoard, deleteBoard, deleteColumn, updateBoard, updateColumn, usePeople, useWork } from "./store";
 import { StatusPill, plainSelect } from "./ui";
 
 // ── Confirm (replaces window.confirm) ────────────────────────
@@ -55,9 +55,22 @@ export function ConfirmHost() {
 
 // ── New board ────────────────────────────────────────────────
 
-export function NewBoardDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
+/** Project picker shared by the new-board and board-settings dialogs. Every board needs a project. */
+function ProjectSelect({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const projects = useWork()?.projects ?? [];
+  return (
+    <select id="board-project" required className={`${plainSelect} w-full`} value={value} onChange={(e) => onChange(e.target.value)}>
+      {!value && <option value="" disabled>Choose a project…</option>}
+      {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+  );
+}
+
+export function NewBoardDialog({ open, projectId, onClose, onCreated }: { open: boolean; projectId?: string; onClose: () => void; onCreated: (id: string) => void }) {
+  const projects = useWork()?.projects ?? [];
   const [name, setName] = useState("");
   const [tpl, setTpl] = useState("blank");
+  const [project, setProject] = useState(projectId || projects[0]?.id || "");
   const [busy, setBusy] = useState(false);
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -71,7 +84,7 @@ export function NewBoardDialog({ open, onClose, onCreated }: { open: boolean; on
           onSubmit={async (e) => {
             e.preventDefault();
             setBusy(true);
-            const id = await createBoard(name.trim() || "Untitled board", tpl);
+            const id = await createBoard(name.trim() || "Untitled board", tpl, project);
             setBusy(false);
             if (!id) return;
             setName("");
@@ -82,6 +95,10 @@ export function NewBoardDialog({ open, onClose, onCreated }: { open: boolean; on
           <div className="space-y-1.5">
             <Label htmlFor="nb-name">Board name</Label>
             <Input id="nb-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Marketing Q4" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="board-project">Project</Label>
+            <ProjectSelect value={project} onChange={setProject} />
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {TEMPLATES.map((t) => (
@@ -97,7 +114,8 @@ export function NewBoardDialog({ open, onClose, onCreated }: { open: boolean; on
               </button>
             ))}
           </div>
-          <Button type="submit" className="w-full" disabled={busy}>{busy ? "Creating…" : "Create board"}</Button>
+          {!projects.length && <p className="text-xs text-muted-foreground">Create a project first (the + next to Projects in the sidebar).</p>}
+          <Button type="submit" className="w-full" disabled={busy || !project}>{busy ? "Creating…" : "Create board"}</Button>
         </form>
       </DialogContent>
     </Dialog>
@@ -123,6 +141,10 @@ export function BoardSettingsDialog({ board, open, onClose, onDeleted }: { board
           <div className="space-y-1.5">
             <Label>Description</Label>
             <Textarea rows={2} defaultValue={board.description} key={board.id + "d"} onBlur={(e) => e.target.value !== board.description && updateBoard(board.id, { description: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="board-project">Project</Label>
+            <ProjectSelect value={board.projectId ?? ""} onChange={(projectId) => updateBoard(board.id, { projectId })} />
           </div>
         </section>
 
@@ -243,6 +265,7 @@ export function SearchDialog({ state, open, onClose, onOpenItem, onOpenBoard }: 
           {boards.map((b) => (
             <button key={b.id} onClick={() => { onOpenBoard(b.id); close(); }} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted">
               <LayoutList className="size-4 text-muted-foreground" /> {b.name}
+              {b.projectId && <span className="ml-auto text-xs text-muted-foreground">{state.projects.find((p) => p.id === b.projectId)?.name}</span>}
             </button>
           ))}
           {items.length > 0 && <div className="mt-2 px-2 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">Items</div>}

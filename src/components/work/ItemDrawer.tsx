@@ -14,7 +14,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DONE, PRIORITIES, TONES, defaultGroup, isBlocked, prioMeta, statusOf, type Board, type Item, type NewItemFields, type Person, type Priority, type WorkState } from "@/lib/work";
+import { DONE, PRIORITIES, TONES, defaultGroup, isBlocked, prioMeta, statusOf, type Board, type Item, type NewItemFields, type Priority, type WorkState } from "@/lib/work";
 import {
   addFile,
   addSubtask,
@@ -134,7 +134,7 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
                 {board?.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
               </select>
             </Field>
-            <Field label="Created by">
+            <Field label="Reported by">
               <div className="flex h-8 items-center truncate">{people.find((p) => p.id === item.createdBy)?.name ?? "—"}</div>
             </Field>
             <Field label="Ticket created">
@@ -153,7 +153,7 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
             </Field>
             {board?.columns.map((c) => (
               <Field key={c.id} label={c.name}>
-                <CellEditor boxed col={c} value={item.values[c.id]} onChange={(v) => setCell(item.id, c.id, v)} />
+                <CellEditor boxed board={board} col={c} value={item.values[c.id]} onChange={(v) => setCell(item.id, c.id, v)} />
               </Field>
             ))}
           </div>
@@ -355,14 +355,36 @@ function storeDraft(boardId: string, d: Draft | null) {
   } catch {}
 }
 
-export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board; me: Person; onClose: () => void; onCreated: (id: string) => void }) {
+/** Global new-item panel: pick project → board → group, then save. Needs at least one board. */
+export function NewItemDrawer({ state, initialBoardId, onClose, onCreated }: { state: WorkState; initialBoardId?: string; onClose: () => void; onCreated: (id: string, boardId: string) => void }) {
+  const me = state.me;
   const assignable = useAssignable();
+  const [boardId, setBoardId] = useState(() => (state.boards.some((b) => b.id === initialBoardId) ? initialBoardId! : state.boards[0].id));
+  const board = state.boards.find((b) => b.id === boardId) ?? state.boards[0];
   const [d, setD] = useState(() => {
     const draft = loadDraft(board);
-    // Sales tickets default to the admins (the server enforces the same rule)
+    // Sales tickets default to the whole team (the server enforces the same rule)
     if (me.role === "SALES" && !draft.assignees.length) draft.assignees = assignable.map((p) => p.id);
     return draft;
   });
+  // Only projects that have boards are offered, so a board is always selected.
+  const projectIds = state.projects.filter((p) => state.boards.some((b) => b.projectId === p.id)).map((p) => p.id);
+  const projectOf = (b: Board) => (b.projectId && projectIds.includes(b.projectId) ? b.projectId : "");
+  const hasLoose = state.boards.some((b) => !projectOf(b));
+  const boardsInProject = state.boards.filter((b) => projectOf(b) === projectOf(board));
+
+  // Moving the draft to another board keeps what was typed; board-specific fields reset.
+  const switchBoard = (id: string) => {
+    const next = state.boards.find((b) => b.id === id);
+    if (!next || id === board.id) return;
+    storeDraft(board.id, null);
+    setBoardId(id);
+    setD((prev) => {
+      const moved = { ...blankDraft(next), name: prev.name, description: prev.description, priority: prev.priority, assignees: prev.assignees, due: prev.due };
+      storeDraft(id, moved);
+      return moved;
+    });
+  };
   // Screenshots are kept in memory only (too big for the localStorage draft) and attached after save.
   const [files, setFiles] = useState<{ name: string; url?: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -389,8 +411,8 @@ export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board;
     setBusy(false);
     if (!id) return;
     storeDraft(board.id, null);
-    toast.success("Item created");
-    onCreated(id);
+    toast.success("Item created", { description: `Added to ${board.name}` });
+    onCreated(id, board.id);
   };
 
   const discard = () => {
@@ -404,8 +426,6 @@ export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board;
       <aside className="relative flex h-full w-full max-w-2xl flex-col bg-card shadow-2xl">
         <header className="border-b px-6 py-4">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{board.name}</span>
-            <span>/</span>
             <span className="font-medium">New item</span>
             <div className="ml-auto flex gap-1">
               <Button variant="ghost" size="icon-sm" title="Close (Esc). Your draft is kept" onClick={onClose}><X /></Button>
@@ -427,6 +447,21 @@ export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board;
 
         <div className="flex-1 overflow-y-auto">
           <div className="grid grid-cols-2 gap-x-6 gap-y-3 border-b px-6 py-4 text-sm sm:grid-cols-3">
+            <Field label="Project">
+              <select
+                className={`${plainSelect} w-full`}
+                value={projectOf(board)}
+                onChange={(e) => { const first = state.boards.find((b) => projectOf(b) === e.target.value); if (first) switchBoard(first.id); }}
+              >
+                {state.projects.filter((p) => projectIds.includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {hasLoose && <option value="">{projectIds.length ? "Other boards" : "No project"}</option>}
+              </select>
+            </Field>
+            <Field label="Board">
+              <select className={`${plainSelect} w-full`} value={board.id} onChange={(e) => switchBoard(e.target.value)}>
+                {boardsInProject.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </Field>
             <Field label="Group">
               <select className={`${plainSelect} w-full`} value={d.groupId} onChange={(e) => set({ groupId: e.target.value })}>
                 {board.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -443,7 +478,7 @@ export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board;
             <Field label="Assigned to">
               <PeoplePicker boxed options={assignable} value={d.assignees} onChange={(a) => set({ assignees: a })} />
             </Field>
-            <Field label="Created by">
+            <Field label="Reported by">
               <div className="flex h-8 items-center truncate">{me.name}</div>
             </Field>
             <Field label="Due">
@@ -453,6 +488,7 @@ export function NewItemDrawer({ board, me, onClose, onCreated }: { board: Board;
               <Field key={c.id} label={c.name}>
                 <CellEditor
                   boxed
+                  board={board}
                   col={c}
                   value={d.values[c.id]}
                   onChange={(v) => {

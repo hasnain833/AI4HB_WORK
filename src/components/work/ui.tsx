@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Star, ExternalLink } from "lucide-react";
 import {
   DropdownMenu,
@@ -8,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TONES, prioMeta, statusOf, type Board, type CellValue, type Column, type Person, type Priority } from "@/lib/work";
-import { usePeople } from "./store";
+import { updateColumn, usePeople } from "./store";
 
 export const fieldSelect =
   "h-8 w-full cursor-pointer appearance-none rounded-full px-3 text-center text-xs font-medium outline-none transition hover:opacity-80";
@@ -62,9 +63,46 @@ export function PeoplePicker({ value, onChange, single, options, boxed }: { valu
   );
 }
 
+const ADD_NEW = "__add_new";
+
+/** Dropdown cell; with a board, "+ Add new…" adds an option to the column and selects it. */
+function DropdownCell({ className, board, col, value, onChange }: { className: string; board?: Board; col: Column; value: CellValue | undefined; onChange: (v: CellValue | undefined) => void }) {
+  const [adding, setAdding] = useState(false);
+  const options = col.options ?? [];
+  const add = (raw: string) => {
+    setAdding(false);
+    const name = raw.trim().slice(0, 60);
+    if (!name || !board) return;
+    const existing = options.find((o) => o.toLowerCase() === name.toLowerCase());
+    if (!existing) updateColumn(board, col.id, { options: [...options, name] });
+    onChange(existing ?? name);
+  };
+  if (adding)
+    return (
+      <input
+        autoFocus
+        className={className}
+        placeholder={`New ${col.name.toLowerCase()}…`}
+        aria-label={`New ${col.name} option`}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") { e.currentTarget.value = ""; e.currentTarget.blur(); }
+        }}
+        onBlur={(e) => add(e.target.value)}
+      />
+    );
+  return (
+    <select className={`${className} cursor-pointer`} value={String(value ?? "")} onChange={(e) => (e.target.value === ADD_NEW ? setAdding(true) : onChange(e.target.value))}>
+      <option value="">—</option>
+      {options.map((o) => <option key={o}>{o}</option>)}
+      {board && <option value={ADD_NEW}>+ Add new…</option>}
+    </select>
+  );
+}
+
 /** Editor for one custom-column cell, by column type. */
 /** `boxed` gives inputs a visible border, for forms; table cells stay borderless. */
-export function CellEditor({ col, value: v, onChange, boxed }: { col: Column; value: CellValue | undefined; onChange: (v: CellValue | undefined) => void; boxed?: boolean }) {
+export function CellEditor({ board, col, value: v, onChange, boxed }: { board?: Board; col: Column; value: CellValue | undefined; onChange: (v: CellValue | undefined) => void; boxed?: boolean }) {
   const base = `h-8 w-full rounded-md bg-transparent px-2 text-sm outline-none hover:bg-muted focus:bg-background focus:ring-2 focus:ring-ring/40 ${boxed ? "border border-input placeholder:text-muted-foreground" : ""}`;
   switch (col.type) {
     case "checkbox":
@@ -84,12 +122,7 @@ export function CellEditor({ col, value: v, onChange, boxed }: { col: Column; va
         </div>
       );
     case "dropdown":
-      return (
-        <select className={`${base} cursor-pointer`} value={String(v ?? "")} onChange={(e) => onChange(e.target.value)}>
-          <option value="">—</option>
-          {(col.options ?? []).map((o) => <option key={o}>{o}</option>)}
-        </select>
-      );
+      return <DropdownCell className={base} board={board} col={col} value={v} onChange={onChange} />;
     case "date":
       return <input type="date" className={base} value={String(v ?? "")} onChange={(e) => onChange(e.target.value)} />;
     case "number":

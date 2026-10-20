@@ -19,7 +19,7 @@ Stack: Next.js 16 (App Router, server actions) · Prisma 7 · PostgreSQL (Supaba
 
 
 
-Roles (`User.role`): `ADMIN`, `MEMBER` (default), `SALES` (can only assign tickets to admins). Accounts live in the database; there is no sign-up or seed script.
+Roles (`User.role`): `MEMBER` (default) and `SALES` (can only assign tickets to members). There is no admin. Everyone only sees tickets they reported or are assigned to; public-form and unassigned Sales tickets go to all members. Accounts live in the database; there is no sign-up or seed script.
 
 ## Where things live
 

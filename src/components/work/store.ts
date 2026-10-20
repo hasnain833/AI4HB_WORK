@@ -49,7 +49,6 @@ async function run<T>(p: Promise<T>, optimistic?: (s: WorkState) => WorkState): 
 const patchItems = (ids: string[], fn: (i: Item) => Item) => (s: WorkState) => ({ ...s, items: s.items.map((i) => (ids.includes(i.id) ? fn(i) : i)) });
 const patchBoard = (id: string, fn: (b: Board) => Board) => (s: WorkState) => ({ ...s, boards: s.boards.map((b) => (b.id === id ? fn(b) : b)) });
 
-// ── People ───────────────────────────────────────────────────
 
 export const PeopleContext = createContext<Person[]>([]);
 export function usePeople() {
@@ -57,13 +56,11 @@ export function usePeople() {
   const nameOf = (id?: string) => people.find((p) => p.id === id)?.name ?? "Unknown";
   return { people, nameOf, names: (ids: string[]) => ids.map(nameOf).join(", ") };
 }
-/** People the signed-in user may assign items to (Sales: admins only). */
 export function useAssignable() {
   const s = useWork();
   return s ? assignableUsers(s.me, s.users) : [];
 }
 
-// ── Undo (deletes + bulk edits) ──────────────────────────────
 
 type UndoOp = () => Promise<unknown>;
 const undoStack: UndoOp[] = [];
@@ -128,8 +125,13 @@ export const deleteFile = (itemId: string, id: string) =>
 
 // ── Boards ───────────────────────────────────────────────────
 
-export const createBoard = (name: string, templateKey: string) => run(api.createBoard(name, templateKey));
-export const updateBoard = (id: string, patch: Partial<Pick<Board, "name" | "description" | "statuses" | "columns">>) =>
+export const createProject = (name: string) => run(api.createProject(name));
+export const renameProject = (id: string, name: string) =>
+  run(api.renameProject(id, name), (s) => ({ ...s, projects: s.projects.map((p) => (p.id === id ? { ...p, name } : p)) }));
+export const deleteProject = (id: string) => run(api.deleteProject(id), (s) => ({ ...s, projects: s.projects.filter((p) => p.id !== id) }));
+
+export const createBoard = (name: string, templateKey: string, projectId: string) => run(api.createBoard(name, templateKey, projectId));
+export const updateBoard = (id: string, patch: Partial<Pick<Board, "name" | "description" | "statuses" | "columns" | "projectId">>) =>
   run(api.updateBoard(id, patch), patchBoard(id, (b) => ({ ...b, ...patch })));
 export const deleteBoard = (id: string) => run(api.deleteBoard(id), (s) => ({ ...s, boards: s.boards.filter((b) => b.id !== id) }));
 

@@ -9,8 +9,10 @@ export interface Person { id: string; name: string; email: string; role?: string
 export interface StatusDef { key: string; label: string; tone: Tone }
 export interface Column { id: string; name: string; type: ColumnType; options?: string[] }
 export interface Group { id: string; name: string; color: string }
+export interface Project { id: string; name: string }
 export interface Board {
   id: string;
+  projectId?: string;
   name: string;
   description: string;
   groups: Group[];
@@ -46,6 +48,7 @@ export interface Item {
 export interface WorkState {
   me: Person;
   users: Person[];
+  projects: Project[];
   boards: Board[];
   items: Item[];
 }
@@ -99,8 +102,8 @@ export const GROUP_COLORS = ["#0e1623", "#b48c3c", "#059669", "#64748b", "#c2410
 export const statusOf = (board: Board | undefined, key: string): StatusDef =>
   board?.statuses.find((s) => s.key === key) ?? { key, label: key, tone: "neutral" };
 export const prioMeta = (p: Priority) => PRIORITIES.find((x) => x.key === p)!;
-/** Who `me` may assign items to: Sales users only to admins. */
-export const assignableUsers = (me: Person, users: Person[]) => (me.role === "SALES" ? users.filter((u) => u.role === "ADMIN") : users);
+/** Who `me` may assign items to: Sales users only to the team (non-Sales). */
+export const assignableUsers = (me: Person, users: Person[]) => (me.role === "SALES" ? users.filter((u) => u.role !== "SALES") : users);
 /** New tickets land in the "Backlog" group when the board has one. */
 export const defaultGroup = <G extends { name: string }>(groups: G[]) => groups.find((g) => g.name.trim().toLowerCase() === "backlog") ?? groups[0];
 export const isBlocked =(item: Item, items: Item[]) =>
@@ -135,7 +138,6 @@ export const TEMPLATES: Template[] = [
       ],
       columns: [
         { id: uid(), name: "Environment", type: "dropdown", options: ["Production", "Staging", "Mobile"] },
-        { id: uid(), name: "Reported by", type: "text" },
       ],
     }),
   },

@@ -60,17 +60,14 @@ const isOverdue = (i: Item) => !!i.due && i.status !== DONE && i.due < todayStr(
 
 export type SortKey = "name" | "status" | "priority" | "due" | "creator";
 export type Sort = { key: SortKey; dir: 1 | -1 } | null;
-/** "group" (the board's real groups), "assignee", or a dropdown column id. */
 export type GroupBy = string;
 
 type Section = { id: string; name: string; color: string; rows: Item[]; real: boolean };
 
-/** Table sections. Only "group" sections are real groups (rename, drag, add item); the rest are read-only views. */
 function sectionsFor(board: Board, items: Item[], groupBy: GroupBy, people: { id: string; name: string }[]): Section[] {
   const col = board.columns.find((c) => c.id === groupBy && c.type === "dropdown");
   const color = (n: number) => GROUP_COLORS[n % GROUP_COLORS.length];
   if (groupBy === "assignee") {
-    // An item with two assignees shows under both.
     const s = people.map((p, n) => ({ id: p.id, name: p.name, color: color(n), rows: items.filter((i) => i.assignees.includes(p.id)), real: false }));
     return [...s, { id: "__none", name: "Unassigned", color: color(s.length), rows: items.filter((i) => !i.assignees.length), real: false }];
   }
@@ -82,7 +79,6 @@ function sectionsFor(board: Board, items: Item[], groupBy: GroupBy, people: { id
   return board.groups.map((g) => ({ ...g, rows: items.filter((i) => i.groupId === g.id), real: true }));
 }
 
-// ── Table (Monday-style groups) ──────────────────────────────
 
 export function TableView({
   board,
@@ -192,7 +188,7 @@ export function TableView({
                         <input type="checkbox" className="accent-[#0e1623] dark:accent-[#d4a853]" checked={allSel} onChange={(e) => onSelect(rows.map((r) => r.id), e.target.checked)} />
                       </th>
                       <SortHead k="name" label="Item" className="min-w-72" />
-                      <SortHead k="creator" label="Created by" className="w-40" />
+                      <SortHead k="creator" label="Reported by" className="w-40" />
                       <SortHead k="status" label="Status" className="w-36 text-center" />
                       <SortHead k="priority" label="Priority" className="w-28 text-center" />
                       {showDue && <SortHead k="due" label="Due" className="w-20" />}
@@ -286,7 +282,7 @@ export function TableView({
                               {i.due ? format(parseISO(i.due), "MMM d") : "—"}
                             </td>
                           )}
-                          {cols.map((c) => <td key={c.id} className="px-1 py-1"><CellEditor col={c} value={i.values[c.id]} onChange={(v) => setCell(i.id, c.id, v)} /></td>)}
+                          {cols.map((c) => <td key={c.id} className="px-1 py-1"><CellEditor board={board} col={c} value={i.values[c.id]} onChange={(v) => setCell(i.id, c.id, v)} /></td>)}
                           <td />
                         </tr>,
                         ...(showSubs
@@ -355,7 +351,6 @@ export function TableView({
   );
 }
 
-/** Monday's group footer: status distribution + number column sums. */
 function GroupFooter({ board, items }: { board: Board; items: Item[] }) {
   const numberCols = board.columns.filter((c) => c.type === "number");
   return (
@@ -375,8 +370,6 @@ function GroupFooter({ board, items }: { board: Board; items: Item[] }) {
     </div>
   );
 }
-
-// ── Kanban ───────────────────────────────────────────────────
 
 export function KanbanView({ board, items, allItems, onOpen }: { board: Board; items: Item[]; allItems: Item[]; onOpen: (id: string) => void }) {
   const { nameOf } = usePeople();
@@ -426,7 +419,7 @@ export function KanbanView({ board, items, allItems, onOpen }: { board: Board; i
                     )}
                     {i.updates.length > 0 && <span className="flex items-center gap-0.5"><MessageSquare className="size-3.5" />{i.updates.length}</span>}
                   </div>
-                  <div className="mt-2 truncate text-xs text-muted-foreground">{i.createdBy ? `Created by ${nameOf(i.createdBy)}` : ""}</div>
+                  <div className="mt-2 truncate text-xs text-muted-foreground">{i.createdBy ? `Reported by ${nameOf(i.createdBy)}` : ""}</div>
                 </div>
               ))}
             </div>
@@ -437,7 +430,6 @@ export function KanbanView({ board, items, allItems, onOpen }: { board: Board; i
   );
 }
 
-// ── Calendar ─────────────────────────────────────────────────
 
 export function CalendarView({ board, items, onOpen }: { board: Board; items: Item[]; onOpen: (id: string) => void }) {
   const [month, setMonth] = useState(() => startOfMonth(new Date()));

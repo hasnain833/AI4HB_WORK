@@ -23,8 +23,18 @@ model User {
   updates       Update[]
 }
 
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  boards    Board[]
+}
+
 model Board {
   id          String       @id @default(cuid())
+  // Deleting a project keeps its boards (they show under "Other boards").
+  projectId   String?
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   name        String
   description String       @default("")
   statuses    Json
@@ -32,6 +42,8 @@ model Board {
   createdAt   DateTime     @default(now())
   groups      Group[]
   items       Item[]
+
+  @@index([projectId])
 }
 
 model Group {

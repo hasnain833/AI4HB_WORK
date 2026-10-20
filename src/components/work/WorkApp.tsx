@@ -6,7 +6,9 @@ import { toast } from "sonner";
 import { format, parseISO, addDays } from "date-fns";
 import {
   CalendarDays,
+  ChevronRight,
   ClipboardList,
+  FolderKanban,
   Home,
   KanbanSquare,
   Keyboard,
@@ -14,6 +16,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -27,12 +30,15 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { logout } from "@/lib/actions";
-import { DONE, PRIORITIES, TONES, statusOf, type Board, type Item, type Priority, type WorkState } from "@/lib/work";
+import { DONE, PRIORITIES, TONES, isBlocked, statusOf, type Board, type Item, type Priority, type WorkState } from "@/lib/work";
 import {
   PeopleContext,
+  createProject,
   deleteItems,
+  deleteProject,
   initState,
   refresh,
+  renameProject,
   undo,
   updateItems,
   useAssignable,
@@ -41,7 +47,7 @@ import {
 } from "./store";
 import { CalendarView, KanbanView, TableView, type GroupBy, type Sort, type SortKey } from "./BoardViews";
 import { ItemDrawer, NewItemDrawer } from "./ItemDrawer";
-import { BoardSettingsDialog, ConfirmHost, NewBoardDialog, SearchDialog } from "./dialogs";
+import { BoardSettingsDialog, ConfirmHost, NewBoardDialog, SearchDialog, confirmDialog } from "./dialogs";
 import { StatusPill, plainSelect } from "./ui";
 
 type Page = { kind: "home" } | { kind: "board"; id: string };
@@ -65,10 +71,10 @@ export function WorkApp({ initial }: { initial: WorkState }) {
   const state = useWork() ?? initial;
   const [page, setPage] = useState<Page>(() => (initial.boards[0] ? { kind: "board", id: initial.boards[0].id } : { kind: "home" }));
   const [openId, setOpenId] = useState<string | null>(null);
-  const [newFor, setNewFor] = useState<string | null>(null); // board id the new-item drawer is open for
+  const [newFor, setNewFor] = useState<string | null>(null); // board to preselect in the new-item drawer ("" = none), null = closed
   const [navOpen, setNavOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [newBoardOpen, setNewBoardOpen] = useState(false);
+  const [newBoardIn, setNewBoardIn] = useState<string | null>(null); // project id for the new-board dialog ("" = no project), null = closed
   const [helpOpen, setHelpOpen] = useState(false);
 
   // Pick up teammates' changes
@@ -98,14 +104,18 @@ export function WorkApp({ initial }: { initial: WorkState }) {
   }, []);
 
   const open = state.items.find((i) => i.id === openId);
-  const newBoard = state.boards.find((b) => b.id === newFor);
   const go = (p: Page) => { setPage(p); setNavOpen(false); };
+  const newItem = () => {
+    if (!state.boards.length) return toast.error("Create a board first");
+    setNewFor(page.kind === "board" ? page.id : "");
+    setNavOpen(false);
+  };
   const boardExists = page.kind !== "board" || state.boards.some((b) => b.id === page.id);
 
   return (
     <PeopleContext.Provider value={state.users}>
       <div className="flex min-h-screen bg-background text-foreground">
-        <Sidebar state={state} page={page} go={go} open={navOpen} onSearch={() => setSearchOpen(true)} onNewBoard={() => setNewBoardOpen(true)} onHelp={() => setHelpOpen(true)} />
+        <Sidebar state={state} page={page} go={go} open={navOpen} onNewItem={newItem} onSearch={() => setSearchOpen(true)} onNewBoard={(projectId) => setNewBoardIn(projectId)} onHelp={() => setHelpOpen(true)} />
         {navOpen && <div className="fixed inset-0 z-30 bg-black/30 md:hidden" onClick={() => setNavOpen(false)} />}
 
         <main className="min-w-0 flex-1 px-4 py-5 md:px-8">
@@ -115,16 +125,26 @@ export function WorkApp({ initial }: { initial: WorkState }) {
           </div>
           {(page.kind === "home" || !boardExists) && <Dashboard state={state} onOpen={setOpenId} />}
           {page.kind === "board" && boardExists && (
-            <BoardPage key={page.id} state={state} boardId={page.id} onOpen={setOpenId} onNew={() => setNewFor(page.id)} onDeleted={() => go({ kind: "home" })} />
+            <BoardPage key={page.id} state={state} boardId={page.id} onOpen={setOpenId} onNew={newItem} onDeleted={() => go({ kind: "home" })} />
           )}
         </main>
 
         {open && <ItemDrawer item={open} state={state} onClose={() => setOpenId(null)} onOpen={setOpenId} />}
-        {newBoard && <NewItemDrawer key={newBoard.id} board={newBoard} me={state.me} onClose={() => setNewFor(null)} onCreated={() => setNewFor(null)} />}
+        {newFor !== null && state.boards.length > 0 && (
+          <NewItemDrawer
+            key={newFor}
+            state={state}
+            initialBoardId={newFor || undefined}
+            onClose={() => setNewFor(null)}
+            onCreated={(_id, boardId) => { setNewFor(null); go({ kind: "board", id: boardId }); }}
+          />
+        )}
         <SearchDialog state={state} open={searchOpen} onClose={() => setSearchOpen(false)} onOpenItem={setOpenId} onOpenBoard={(id) => go({ kind: "board", id })} />
         <NewBoardDialog
-          open={newBoardOpen}
-          onClose={() => setNewBoardOpen(false)}
+          key={newBoardIn ?? "closed"}
+          open={newBoardIn !== null}
+          projectId={newBoardIn ?? undefined}
+          onClose={() => setNewBoardIn(null)}
           onCreated={(id) => go({ kind: "board", id })}
         />
         <ConfirmHost />
@@ -136,10 +156,45 @@ export function WorkApp({ initial }: { initial: WorkState }) {
 
 // ── Sidebar ──────────────────────────────────────────────────
 
-function Sidebar({ state, page, go, open, onSearch, onNewBoard, onHelp }: { state: WorkState; page: Page; go: (p: Page) => void; open: boolean; onSearch: () => void; onNewBoard: () => void; onHelp: () => void }) {
+/** Inline name field for creating / renaming a project: Enter saves, Esc cancels. */
+function NameInput({ initial = "", onDone }: { initial?: string; onDone: (name: string) => void }) {
+  return (
+    <input
+      autoFocus
+      defaultValue={initial}
+      placeholder="Project name"
+      aria-label="Project name"
+      maxLength={100}
+      className="my-0.5 h-8 w-full rounded-md bg-white/10 px-3 text-sm text-white outline-none ring-1 ring-white/20 placeholder:text-white/40 focus:ring-[#d4a853]"
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") { e.currentTarget.value = ""; e.currentTarget.blur(); }
+      }}
+      onBlur={(e) => onDone(e.target.value.trim())}
+    />
+  );
+}
+
+function Sidebar({ state, page, go, open, onNewItem, onSearch, onNewBoard, onHelp }: { state: WorkState; page: Page; go: (p: Page) => void; open: boolean; onNewItem: () => void; onSearch: () => void; onNewBoard: (projectId: string) => void; onHelp: () => void }) {
   const { resolvedTheme, setTheme } = useTheme();
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [editing, setEditing] = useState<string | null>(null); // project id being renamed, "__new" while adding one
   const navCls = (active: boolean) =>
     `flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition ${active ? "bg-white/10 font-medium text-white" : "text-white/70 hover:bg-white/5 hover:text-white"}`;
+  const iconBtn = "rounded-md p-1 text-white/50 hover:bg-white/10 hover:text-white";
+  const toggle = (id: string) => setCollapsed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
+  const boardRow = (b: Board) => {
+    const openCount = state.items.filter((i) => i.boardId === b.id && i.status !== DONE).length;
+    const active = page.kind === "board" && page.id === b.id;
+    return (
+      <button key={b.id} className={navCls(active)} onClick={() => go({ kind: "board", id: b.id })}>
+        <LayoutList className={`size-4 shrink-0 ${active ? "text-[#d4a853]" : ""}`} />
+        <span className="truncate">{b.name}</span>
+        {openCount > 0 && <span className="ml-auto rounded-full bg-white/10 px-1.5 text-[11px] text-white/60">{openCount}</span>}
+      </button>
+    );
+  };
 
   return (
     <aside
@@ -150,7 +205,10 @@ function Sidebar({ state, page, go, open, onSearch, onNewBoard, onHelp }: { stat
         <div className="mt-2 text-[11px] uppercase tracking-widest text-white/40">Work Management</div>
       </div>
 
-      <div className="px-3 pb-2">
+      <div className="space-y-2 px-3 pb-2">
+        <button onClick={onNewItem} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#b48c3c] px-3 py-2 text-sm font-medium text-white hover:bg-[#c49a48]" title="New item in any project or board">
+          <Plus className="size-4" /> New item
+        </button>
         <button onClick={onSearch} className="flex w-full items-center gap-2 rounded-lg bg-white/5 px-3 py-2 text-sm text-white/50 hover:bg-white/10">
           <Search className="size-4" /> Search
           <kbd className="ml-auto rounded border border-white/20 px-1 text-[10px]">Ctrl K</kbd>
@@ -161,23 +219,59 @@ function Sidebar({ state, page, go, open, onSearch, onNewBoard, onHelp }: { stat
         <button className={navCls(page.kind === "home")} onClick={() => go({ kind: "home" })}><Home className="size-4" /> Dashboard</button>
 
         <div className="flex items-center justify-between px-3 pb-1 pt-5">
-          <span className="text-[11px] font-semibold uppercase tracking-widest text-white/40">Boards</span>
-          <button onClick={onNewBoard} className="rounded-md p-1 text-white/50 hover:bg-white/10 hover:text-white" title="New board"><Plus className="size-3.5" /></button>
+          <span className="text-[11px] font-semibold uppercase tracking-widest text-white/40">Projects</span>
+          <button onClick={() => setEditing("__new")} className={iconBtn} title="New project"><Plus className="size-3.5" /></button>
         </div>
-        {state.boards.map((b) => {
-          const openCount = state.items.filter((i) => i.boardId === b.id && i.status !== DONE).length;
-          const active = page.kind === "board" && page.id === b.id;
+        {editing === "__new" && <NameInput onDone={(name) => { setEditing(null); if (name) createProject(name); }} />}
+        {state.projects.map((p) => {
+          const boards = state.boards.filter((b) => b.projectId === p.id);
+          const shut = collapsed.has(p.id);
           return (
-            <button key={b.id} className={navCls(active)} onClick={() => go({ kind: "board", id: b.id })}>
-              <LayoutList className={`size-4 shrink-0 ${active ? "text-[#d4a853]" : ""}`} />
-              <span className="truncate">{b.name}</span>
-              {openCount > 0 && <span className="ml-auto rounded-full bg-white/10 px-1.5 text-[11px] text-white/60">{openCount}</span>}
-            </button>
+            <div key={p.id}>
+              {editing === p.id ? (
+                <NameInput initial={p.name} onDone={(name) => { setEditing(null); if (name && name !== p.name) renameProject(p.id, name); }} />
+              ) : (
+                <div className="group flex items-center rounded-lg pr-1 hover:bg-white/5">
+                  <button className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm font-medium text-white/85" onClick={() => toggle(p.id)} aria-expanded={!shut}>
+                    <ChevronRight className={`size-3.5 shrink-0 text-white/40 transition-transform ${shut ? "" : "rotate-90"}`} />
+                    <FolderKanban className="size-4 shrink-0 text-[#d4a853]" />
+                    <span className="truncate">{p.name}</span>
+                  </button>
+                  <div className="flex shrink-0 opacity-100 transition-opacity md:opacity-0 md:group-focus-within:opacity-100 md:group-hover:opacity-100">
+                    <button className={iconBtn} title={`New board in ${p.name}`} onClick={() => onNewBoard(p.id)}><Plus className="size-3.5" /></button>
+                    <button className={iconBtn} title="Rename project" onClick={() => setEditing(p.id)}><Pencil className="size-3.5" /></button>
+                    <button
+                      className={iconBtn}
+                      title="Delete project"
+                      onClick={async () => {
+                        if (boards.length) return toast.error("Move or delete this project's boards first", { description: "Board settings → Project moves a board." });
+                        if (!(await confirmDialog(`Delete project “${p.name}”?`))) return;
+                        deleteProject(p.id);
+                        toast("Project deleted");
+                      }}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!shut && (
+                <div className="ml-[1.35rem] space-y-1 border-l border-white/10 pl-2">
+                  {boards.map(boardRow)}
+                  {boards.length === 0 && (
+                    <button onClick={() => onNewBoard(p.id)} className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-white/40 hover:bg-white/5 hover:text-white">
+                      <Plus className="size-3.5" /> Add a board
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           );
         })}
-        {state.boards.length === 0 && (
-          <button onClick={onNewBoard} className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center gap-2 rounded-lg border border-dashed border-white/15 px-3 py-3 text-sm text-white/50 hover:border-white/30 hover:text-white">
-            <Plus className="size-4" /> Create your first board
+
+        {state.projects.length === 0 && editing !== "__new" && (
+          <button onClick={() => setEditing("__new")} className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center gap-2 rounded-lg border border-dashed border-white/15 px-3 py-3 text-sm text-white/50 hover:border-white/30 hover:text-white">
+            <Plus className="size-4" /> Create your first project
           </button>
         )}
       </nav>
@@ -215,6 +309,7 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
   const [q, setQ] = useState("");
   const [person, setPerson] = useState("");
   const [status, setStatus] = useState("");
+  const [group, setGroup] = useState("");
   const [groupBy, setGroupBy] = useState<GroupBy>("group");
   const [sort, setSort] = useState<Sort>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -228,7 +323,8 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
         i.boardId === boardId &&
         (!s || i.name.toLowerCase().includes(s)) &&
         (!person || (person === "__none" ? i.assignees.length === 0 : i.assignees.includes(person))) &&
-        (!status || i.status === status),
+        (!status || i.status === status) &&
+        (!group || i.groupId === group),
     );
     if (!sort) return list;
     const idx = (k: string) => board.statuses.findIndex((x) => x.key === k);
@@ -240,7 +336,20 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
               : i.createdBy ? nameOf(i.createdBy) : "~";
     return [...list].sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * sort.dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.items, boardId, q, person, status, sort, board.statuses]);
+  }, [state.items, boardId, q, person, status, group, sort, board.statuses]);
+
+  // Report cards count the whole board, ignoring the filters below them.
+  const today = format(new Date(), "yyyy-MM-dd");
+  const boardItems = state.items.filter((i) => i.boardId === boardId);
+  const openItems = boardItems.filter((i) => i.status !== DONE);
+  const overdueCount = openItems.filter((i) => i.due && i.due < today).length;
+  const cards = [
+    { label: "Open", value: openItems.length },
+    { label: "Critical", value: openItems.filter((i) => i.priority === "CRITICAL").length, alert: true },
+    { label: statusOf(board, DONE).label, value: boardItems.length - openItems.length },
+    { label: "Overdue", value: overdueCount, alert: true },
+    { label: "Blocked", value: openItems.filter((i) => statusOf(board, i.status).tone === "red" || isBlocked(i, state.items)).length },
+  ];
 
   // "n" = new item
   useEffect(() => {
@@ -267,6 +376,7 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
     <div className="space-y-4 pb-20">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
+          {board.projectId && <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{state.projects.find((p) => p.id === board.projectId)?.name}</div>}
           <h1 className="text-2xl font-semibold tracking-tight">{board.name}</h1>
           {board.description && <p className="text-sm text-muted-foreground">{board.description}</p>}
         </div>
@@ -286,6 +396,8 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
           <Button onClick={onNew} title="New item (N)"><Plus /> New item</Button>
         </div>
       </div>
+
+      <StatTiles tiles={cards} />
 
       <div className="flex flex-wrap items-center gap-2 border-b pb-3">
         <div className="flex rounded-lg border p-0.5">
@@ -308,6 +420,10 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
           <option value="">All statuses</option>
           {board.statuses.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
         </select>
+        <select className={plainSelect} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Filter by group">
+          <option value="">All groups</option>
+          {board.groups.map((gr) => <option key={gr.id} value={gr.id}>{gr.name}</option>)}
+        </select>
         {view === "table" && (
           <select className={plainSelect} value={groupBy} onChange={(e) => setGroupBy(e.target.value)} title="Group by">
             <option value="group">Group by: Group</option>
@@ -315,8 +431,8 @@ function BoardPage({ state, boardId, onOpen, onNew, onDeleted }: { state: WorkSt
             {board.columns.filter((c) => c.type === "dropdown").map((c) => <option key={c.id} value={c.id}>Group by: {c.name}</option>)}
           </select>
         )}
-        {(q || person || status || sort) && (
-          <Button variant="ghost" size="sm" onClick={() => { setQ(""); setPerson(""); setStatus(""); setSort(null); }}>
+        {(q || person || status || group || sort) && (
+          <Button variant="ghost" size="sm" onClick={() => { setQ(""); setPerson(""); setStatus(""); setGroup(""); setSort(null); }}>
             <X /> Clear
           </Button>
         )}
@@ -400,14 +516,7 @@ function Dashboard({ state, onOpen }: { state: WorkState; onOpen: (id: string) =
         <p className="text-sm text-muted-foreground">Everything across all {state.boards.length} boards.</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {tiles.map((t) => (
-          <div key={t.label} className="rounded-xl border bg-card ring-1 ring-foreground/10 p-4 shadow-xs">
-            <div className="text-xs text-muted-foreground">{t.label}</div>
-            <div className={`mt-1 text-3xl font-semibold ${t.alert ? "text-red-600" : ""}`}>{t.value}</div>
-          </div>
-        ))}
-      </div>
+      <StatTiles tiles={tiles} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Progress by board">
@@ -454,6 +563,20 @@ function Dashboard({ state, onOpen }: { state: WorkState; onOpen: (id: string) =
           <ItemList items={dueSoon} boardOf={boardOf} onOpen={onOpen} empty="Nothing due this week." />
         </Card>
       </div>
+    </div>
+  );
+}
+
+/** Number tiles; `alert` turns a non-zero value red. Shared by the dashboard and board report cards. */
+function StatTiles({ tiles }: { tiles: { label: string; value: number; alert?: boolean }[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      {tiles.map((t) => (
+        <div key={t.label} className="rounded-xl border bg-card ring-1 ring-foreground/10 p-4 shadow-xs">
+          <div className="text-xs text-muted-foreground">{t.label}</div>
+          <div className={`mt-1 text-3xl font-semibold tabular-nums ${t.alert && t.value > 0 ? "text-red-600 dark:text-red-400" : ""}`}>{t.value}</div>
+        </div>
+      ))}
     </div>
   );
 }
