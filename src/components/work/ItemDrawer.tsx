@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
-import { fileToDataUrl, imageToDataUrl, openDataUrl } from "@/lib/utils";
+import { imageToDataUrl, openDataUrl } from "@/lib/utils";
 import { toast } from "sonner";
 import { Check, Copy, Link2, Lock, Paperclip, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -60,10 +60,12 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
     setSubtask("");
   };
 
+  // Images are shrunk in the browser; other files go up as-is (a Blob, not a >1M-char string,
+  // which React's action decoder rejects) and the server turns them into a data URL.
   const attach = async (f: File) => {
-    const url = await fileToDataUrl(f).catch(() => undefined);
-    if (!url) return toast.error(`${f.name} is too large to attach (max ~1MB)`);
-    await addFile(item.id, f.name, url);
+    const content = f.type.startsWith("image/") ? await imageToDataUrl(f).catch(() => undefined) : f.size <= 1_100_000 ? f : undefined;
+    if (!content) return toast.error(`${f.name} is too large to attach (max ~1MB)`);
+    await addFile(item.id, f.name, content);
   };
 
   return (

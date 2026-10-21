@@ -480,9 +480,14 @@ export async function deleteSubtask(id: string) {
 // Files
 
 /** Returns an error message instead of throwing: production hides thrown messages from the client. */
-export async function addFile(itemId: string, name: string, url?: string): Promise<string | undefined> {
+export async function addFile(itemId: string, name: string, content?: string | Blob): Promise<string | undefined> {
   try {
     const me = await requireItems([itemId]);
+    // ponytail: files live in the DB as data URLs (~1MB cap); move to object storage for bigger files
+    const url =
+      content instanceof Blob
+        ? `data:${content.type || "application/octet-stream"};base64,${Buffer.from(await content.arrayBuffer()).toString("base64")}`
+        : content;
     if (url && url.length > 1_500_000) return "File too large (max ~1MB)";
     await prisma.$transaction([
       prisma.file.create({ data: { itemId, name, url } }),

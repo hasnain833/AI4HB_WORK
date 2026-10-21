@@ -33,19 +33,6 @@ export async function imageToDataUrl(f: File, maxBytes = 700_000): Promise<strin
   return out.length <= maxBytes ? out : undefined;
 }
 
-/** Any file -> data URL. Images go through imageToDataUrl; others (PDF, docs…) are kept as-is. Undefined if too big. */
-export async function fileToDataUrl(f: File): Promise<string | undefined> {
-  if (f.type.startsWith("image/")) return imageToDataUrl(f);
-  const raw = await new Promise<string>((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(String(r.result));
-    r.onerror = rej;
-    r.readAsDataURL(f);
-  });
-  // ponytail: files live in the DB as data URLs (addFile caps at 1.5M chars, ~1MB); move to object storage for bigger files
-  return raw.length <= 1_500_000 ? raw : undefined;
-}
-
 /** Browsers block opening data: URLs in a new tab, so open them as a blob URL instead. */
 export async function openDataUrl(url: string) {
   const blob = await (await fetch(url)).blob();
