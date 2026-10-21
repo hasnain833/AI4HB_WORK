@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { format, formatDistanceToNow, parseISO } from "date-fns";
-import { imageToDataUrl } from "@/lib/utils";
+import { fileToDataUrl, imageToDataUrl, openDataUrl } from "@/lib/utils";
 import { toast } from "sonner";
 import { Check, Copy, Link2, Lock, Paperclip, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,11 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
     setSubtask("");
   };
 
-  const attach = async (f: File) => addFile(item.id, f.name, await imageToDataUrl(f).catch(() => undefined));
+  const attach = async (f: File) => {
+    const url = await fileToDataUrl(f).catch(() => undefined);
+    if (!url) return toast.error(`${f.name} is too large to attach (max ~1MB)`);
+    await addFile(item.id, f.name, url);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -284,10 +288,14 @@ export function ItemDrawer({ item, state, onClose, onOpen }: { item: Item; state
                   {item.files.map((f) => (
                     <div key={f.id} className="group relative overflow-hidden rounded-lg border">
                       {f.url ? (
-                        <a href={f.url} target="_blank" rel="noreferrer">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={f.url} alt={f.name} className="h-24 w-full object-cover" />
-                        </a>
+                        <button type="button" className="block w-full" title={`Open ${f.name}`} onClick={() => openDataUrl(f.url!)}>
+                          {f.url.startsWith("data:image/") ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={f.url} alt={f.name} className="h-24 w-full object-cover" />
+                          ) : (
+                            <div className="flex h-24 items-center justify-center bg-muted"><Paperclip className="size-6 text-muted-foreground" /></div>
+                          )}
+                        </button>
                       ) : (
                         <div className="flex h-24 items-center justify-center bg-muted"><Paperclip className="size-6 text-muted-foreground" /></div>
                       )}
