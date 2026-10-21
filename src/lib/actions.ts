@@ -1,7 +1,7 @@
 "use server";
 
 import bcrypt from "bcryptjs";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { createSession, destroySession, requireUser } from "./auth";
@@ -479,16 +479,22 @@ export async function deleteSubtask(id: string) {
 
 // Files
 
-export async function addFile(itemId: string, name: string, url?: string) {
-  const me = await requireItems([itemId]);
-  if (url && url.length > 1_500_000)
-    throw new Error("File too large for the demo (max ~1MB image)");
-  await prisma.$transaction([
-    prisma.file.create({ data: { itemId, name, url } }),
-    prisma.activity.create({
-      data: { itemId, text: `${me.name} attached ${name}` },
-    }),
-  ]);
+/** Returns an error message instead of throwing: production hides thrown messages from the client. */
+export async function addFile(itemId: string, name: string, url?: string): Promise<string | undefined> {
+  try {
+    const me = await requireItems([itemId]);
+    if (url && url.length > 1_500_000) return "File too large (max ~1MB)";
+    await prisma.$transaction([
+      prisma.file.create({ data: { itemId, name, url } }),
+      prisma.activity.create({
+        data: { itemId, text: `${me.name} attached ${name}` },
+      }),
+    ]);
+  } catch (e) {
+    unstable_rethrow(e);
+    console.error("[addFile]", e);
+    return `Could not attach ${name}: ${e instanceof Error ? e.message.slice(0, 200) : "unknown error"}`;
+  }
 }
 
 export async function deleteFile(id: string) {

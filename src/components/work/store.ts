@@ -119,7 +119,8 @@ export const updateSubtask = (itemId: string, id: string, patch: { done?: boolea
 export const deleteSubtask = (itemId: string, id: string) =>
   run(api.deleteSubtask(id), patchItems([itemId], (i) => ({ ...i, subtasks: i.subtasks.filter((s) => s.id !== id) })));
 
-export const addFile = (itemId: string, name: string, url?: string) => run(api.addFile(itemId, name, url));
+export const addFile = (itemId: string, name: string, url?: string) =>
+  run(api.addFile(itemId, name, url)).then((err) => { if (err) toast.error(err); });
 export const deleteFile = (itemId: string, id: string) =>
   run(api.deleteFile(id), patchItems([itemId], (i) => ({ ...i, files: i.files.filter((f) => f.id !== id) })));
 
